@@ -281,7 +281,7 @@ let nextCutTimeout;
 
     function triggerGlitch() {
 
-  if (Math.random() > 0.75) {
+  if (Math.random() > 0.92) {
 
     activeVideo.classList.add('glitch');
 
@@ -319,10 +319,11 @@ async function playRandomSegment() {
       Math.random() * (safeDuration - MIN_CLIP_LENGTH)
     );
 
-    const randomLength = randomRange(
-      MIN_CLIP_LENGTH,
-      MAX_CLIP_LENGTH
-    );
+    const randomLength =
+  randomRange(
+    MIN_CLIP_LENGTH,
+    MAX_CLIP_LENGTH
+  ) * (Math.random() > 0.8 ? 0.5 : 1);
 
     inactiveVideo.currentTime = randomStart;
 
@@ -381,7 +382,7 @@ async function playRandomSegment() {
 
 nextCutTimeout = setTimeout(() => {
   playRandomSegment();
-}, randomLength * 1500);;
+}, randomLength * 1500);
   };
 }
 
