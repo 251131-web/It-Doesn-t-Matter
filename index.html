@@ -7,18 +7,9 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
-    body {
-      background: black;
-      overflow: hidden;
-      font-family: Arial, sans-serif;
-      color: white;
-    }
+    body { background: black; overflow: hidden; font-family: Arial, sans-serif; color: white; }
 
-    #videoContainer {
-      position: fixed;
-      inset: 0;
-      background: black;
-    }
+    #videoContainer { position: fixed; inset: 0; background: black; }
 
     video {
       position: absolute;
@@ -40,13 +31,11 @@
       background-image: url('https://grainy-gradients.vercel.app/noise.svg');
       animation: grainShift 0.25s steps(2) infinite;
     }
-
     @keyframes grainShift {
       0%   { transform: translate(0,0); }
       25%  { transform: translate(-1%,1%); }
       50%  { transform: translate(1%,-1%); }
       75%  { transform: translate(1%,1%); }
-      100% { transform: translate(0,0); }
     }
 
     #vignette {
@@ -93,11 +82,9 @@
       cursor: pointer;
       transition: transform 0.2s ease;
     }
-
     #startButton:hover { transform: scale(1.05); }
 
     .glitch { animation: glitch 0.18s linear; }
-
     @keyframes glitch {
       0%   { transform: translate(0,0); }
       25%  { transform: translate(-5px, 2px); }
@@ -112,8 +99,7 @@
 <div id="startScreen">
   <h1>DIMENSION FILM</h1>
   <p style="margin-top:12px; max-width:600px; opacity:0.8;">
-    Every viewing is different.<br>
-    The dimensions rearrange themselves each time.
+    Every viewing is different.<br>The dimensions rearrange themselves each time.
   </p>
   <button id="startButton">ENTER</button>
 </div>
@@ -133,7 +119,7 @@
 </div>
 
 <script>
-// ─── ELEMENTS ───────────────────────────────────────────────────────────────
+// ── ELEMENTS ──────────────────────────────────────────────────────────────────
 const vidA        = document.getElementById('vidA');
 const vidB        = document.getElementById('vidB');
 const startBtn    = document.getElementById('startButton');
@@ -142,12 +128,12 @@ const dimLabel    = document.getElementById('dimensionName');
 const cutLabel    = document.getElementById('cutCounter');
 const seedLabel   = document.getElementById('seedDisplay');
 
-// ─── CONFIG ─────────────────────────────────────────────────────────────────
-const MIN_CLIP  = 5;   // seconds
-const MAX_CLIP  = 12;
-const BUFFER    = 1;   // don't seek within last N secs of a file
+// ── CONFIG ────────────────────────────────────────────────────────────────────
+const MIN_CLIP = 5;    // seconds a clip plays before cutting
+const MAX_CLIP = 12;
+const BUFFER   = 2;    // avoid seeking within last N seconds of a file
 
-// ─── ADD YOUR VIDEOS HERE ───────────────────────────────────────────────────
+// ── ADD YOUR VIDEOS HERE ──────────────────────────────────────────────────────
 const dimensions = {
   MEMORY: ['videos/memory1.mp4', 'videos/memory2.mp4'],
   HORROR: ['videos/horror1.mp4', 'videos/horror2.mp4'],
@@ -155,150 +141,196 @@ const dimensions = {
   VOID:   ['videos/void1.mp4',   'videos/void2.mp4'],
 };
 
-// ─── STATE ───────────────────────────────────────────────────────────────────
-let currentDim  = 'MEMORY';
-let lastClip    = '';
-let cutCount    = 0;
-let showVid     = vidA;   // currently visible/audible
-let hideVid     = vidB;   // preloading next clip
-let cutTimer    = null;
-let audioCtx, gainShow, gainHide, srcA, srcB;
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let currentDim = 'MEMORY';
+let lastClip   = '';
+let cutCount   = 0;
+let showVid    = vidA;   // currently visible + audible
+let hideVid    = vidB;   // being preloaded in background
+let cutTimer   = null;
+let preloadPromise = null;  // the in-flight preload for the next clip
 
-// ─── SEED ────────────────────────────────────────────────────────────────────
+// ── SEED ──────────────────────────────────────────────────────────────────────
 let seed = localStorage.getItem('realitySeed');
 if (!seed) { seed = Math.random().toString(36).slice(2, 10); localStorage.setItem('realitySeed', seed); }
 seedLabel.textContent = seed;
 
-// ─── UTILS ───────────────────────────────────────────────────────────────────
-const pick   = arr => arr[Math.floor(Math.random() * arr.length)];
-const range  = (a, b) => Math.random() * (b - a) + a;
+// ── UTILS ─────────────────────────────────────────────────────────────────────
+const pick  = arr => arr[Math.floor(Math.random() * arr.length)];
+const range = (a, b) => Math.random() * (b - a) + a;
 
-function nextDim() {
+function pickDim() {
   if (Math.random() < 0.35) return currentDim;
   return pick(Object.keys(dimensions));
 }
 
-function gainOf(vid) { return vid === vidA ? gainShow : gainHide; }
-// After swap, gainShow/gainHide labels flip with the vids — we track by element.
-// Actually we track by fixed assignment: gainA always belongs to vidA.
-function gainForEl(vid) { return vid === vidA ? srcA._gain : srcB._gain; }
+function pickClip(dim) {
+  const clips = dimensions[dim];
+  let clip = pick(clips);
+  while (clip === lastClip && clips.length > 1) clip = pick(clips);
+  return clip;
+}
 
-// ─── AUDIO INIT (must run inside user gesture) ───────────────────────────────
+// ── AUDIO INIT ────────────────────────────────────────────────────────────────
+// Called synchronously inside the click handler — this is the only moment
+// Chrome allows AudioContext creation without user-gesture restrictions.
+let audioCtx;
 function initAudio() {
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-  const mediaA = audioCtx.createMediaElementSource(vidA);
-  const mediaB = audioCtx.createMediaElementSource(vidB);
-
-  const gA = audioCtx.createGain(); gA.gain.value = 0;
-  const gB = audioCtx.createGain(); gB.gain.value = 0;
-
-  mediaA.connect(gA).connect(audioCtx.destination);
-  mediaB.connect(gB).connect(audioCtx.destination);
-
-  // Stash gains keyed by element id for easy lookup
-  vidA._gain = gA;
-  vidB._gain = gB;
-}
-
-// ─── PRELOAD next clip into hideVid ──────────────────────────────────────────
-function preloadInto(vid, clip, startTime) {
-  return new Promise((resolve, reject) => {
-    vid.onloadedmetadata = null;
-    vid.onerror = null;
-
-    vid.src   = clip;
-    vid.load();
-
-    vid.onloadedmetadata = () => {
-      const safe  = Math.max(0, vid.duration - BUFFER - MIN_CLIP);
-      const start = startTime !== undefined ? startTime : range(0, safe);
-      vid.currentTime = start;
-
-      // Wait for the seek to settle
-      const onSeeked = () => {
-        vid.removeEventListener('seeked', onSeeked);
-        resolve(start);
-      };
-      vid.addEventListener('seeked', onSeeked);
-    };
-
-    vid.onerror = () => reject(new Error('Load failed: ' + clip));
+  [vidA, vidB].forEach(vid => {
+    const src  = audioCtx.createMediaElementSource(vid);
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0;
+    src.connect(gain).connect(audioCtx.destination);
+    vid._gain = gain;  // attach gain node directly to the element
   });
 }
 
-// ─── MAIN CUT ────────────────────────────────────────────────────────────────
+// ── PRELOAD ───────────────────────────────────────────────────────────────────
+// Loads a clip into `vid`, seeks to a random start point, and resolves once
+// the frame is ready. Does NOT clear src between uses — that causes re-downloads.
+function preload(vid, clip) {
+  return new Promise((resolve, reject) => {
+    // Only reload if the src actually changed
+    if (vid.src !== clip && !vid.src.endsWith(clip)) {
+      vid.onloadedmetadata = null;
+      vid.onerror = null;
+      vid.src = clip;
+      vid.load();
+    }
+
+    function doSeek() {
+      const safe  = Math.max(0, vid.duration - BUFFER - MIN_CLIP);
+      const start = range(0, Math.max(0, safe));
+      vid.currentTime = start;
+
+      const onSeeked = () => {
+        vid.removeEventListener('seeked', onSeeked);
+        resolve();
+      };
+      vid.addEventListener('seeked', onSeeked);
+
+      // Fallback: if seeked never fires (some servers), resolve after 800ms
+      setTimeout(resolve, 800);
+    }
+
+    if (vid.readyState >= 1) {
+      // Metadata already available
+      doSeek();
+    } else {
+      vid.onloadedmetadata = doSeek;
+      vid.onerror = () => reject(new Error('Failed: ' + clip));
+    }
+  });
+}
+
+// ── START NEXT PRELOAD ────────────────────────────────────────────────────────
+// Called right after a cut so the next clip is ready well before it's needed.
+function kickNextPreload() {
+  const dim  = pickDim();
+  const clip = pickClip(dim);
+  // Store what we chose so cut() can use it
+  hideVid._pendingDim  = dim;
+  hideVid._pendingClip = clip;
+  preloadPromise = preload(hideVid, clip);
+}
+
+// ── CUT ───────────────────────────────────────────────────────────────────────
 async function cut() {
-  currentDim = nextDim();
-  dimLabel.textContent = currentDim;
+  clearTimeout(cutTimer);
 
-  const clips = dimensions[currentDim];
-  let clip = pick(clips);
-  while (clip === lastClip && clips.length > 1) clip = pick(clips);
-  lastClip = clip;
-
-  // Preload into the hidden video — this awaits the seek so it's frame-ready
+  // Wait for the preload that was kicked off during the previous clip
   try {
-    await preloadInto(hideVid, clip);
-  } catch (e) {
-    console.warn(e);
-    cutTimer = setTimeout(cut, 2000);
+    await preloadPromise;
+  } catch(e) {
+    console.warn('Preload failed, retrying:', e);
+    kickNextPreload();
+    cutTimer = setTimeout(cut, 1500);
     return;
   }
 
-  // Resume AudioContext if browser suspended it (common on mobile)
-  if (audioCtx.state === 'suspended') await audioCtx.resume();
+  // Use the dim/clip that was chosen during preload
+  const dim  = hideVid._pendingDim  || pickDim();
+  const clip = hideVid._pendingClip || pickClip(dim);
+  currentDim = dim;
+  lastClip   = clip;
+  dimLabel.textContent = currentDim;
 
-  // Start playing the preloaded clip (it's muted via the element, so no block)
+  // Resume AudioContext (Chrome suspends it if the page loses focus)
+  if (audioCtx && audioCtx.state === 'suspended') {
+    await audioCtx.resume();
+  }
+
+  // Play the preloaded video (muted at element level = never blocked)
   try {
     await hideVid.play();
-  } catch (e) {
+  } catch(e) {
     console.warn('play() blocked:', e);
     cutTimer = setTimeout(cut, 500);
     return;
   }
 
-  // ── Swap ──
+  // ── Perform the swap ──────────────────────────────────────────────────────
   const incoming = hideVid;
   const outgoing = showVid;
 
-  // Visual crossfade
+  // Visual swap
   incoming.style.opacity = '1';
   outgoing.style.opacity = '0';
 
-  // Audio: silence outgoing, open incoming instantly
-  outgoing._gain.gain.value = 0;
-  incoming._gain.gain.value = 1;
+  // Audio swap via gain nodes — instant, no fade
+  if (audioCtx) {
+    incoming._gain.gain.setValueAtTime(1, audioCtx.currentTime);
+    outgoing._gain.gain.setValueAtTime(0, audioCtx.currentTime);
+  }
 
-  // Stop outgoing after transition completes
-  setTimeout(() => { outgoing.pause(); outgoing.src = ''; }, 800);
+  // Pause outgoing after the visual transition finishes
+  setTimeout(() => outgoing.pause(), 600);
 
-  // Update state
+  // Flip references
   [showVid, hideVid] = [incoming, outgoing];
+
+  // Update counters
   cutCount++;
   cutLabel.textContent = cutCount;
 
-  // Occasional glitch on the now-active video
+  // Occasional glitch
   if (Math.random() > 0.92) {
     incoming.classList.add('glitch');
     setTimeout(() => incoming.classList.remove('glitch'), 180);
   }
 
-  // Schedule next cut
+  // Choose clip length, then immediately kick off the next preload
+  // so it has the full clip duration to download and seek
   const clipLen = range(MIN_CLIP, MAX_CLIP);
+  kickNextPreload();
   cutTimer = setTimeout(cut, clipLen * 1000);
 }
 
-// ─── START ───────────────────────────────────────────────────────────────────
+// ── START ─────────────────────────────────────────────────────────────────────
 startBtn.addEventListener('click', () => {
   startScreen.style.display = 'none';
-  initAudio();   // AudioContext created synchronously in the gesture ✓
+
+  // AudioContext MUST be created synchronously here, inside the gesture
+  initAudio();
+
+  // Pick and preload the very first clip, then cut immediately when ready
+  const dim  = pickDim();
+  const clip = pickClip(dim);
+  hideVid._pendingDim  = dim;
+  hideVid._pendingClip = clip;
+  preloadPromise = preload(hideVid, clip);
   cut();
 });
 
-// ─── KEYBOARD ────────────────────────────────────────────────────────────────
+// ── KEYBOARD ──────────────────────────────────────────────────────────────────
 document.addEventListener('keydown', e => {
-  if (e.code === 'Space') { clearTimeout(cutTimer); cut(); }
+  if (e.code === 'Space') {
+    clearTimeout(cutTimer);
+    kickNextPreload();
+    cut();
+  }
   if (e.key.toLowerCase() === 'g' && showVid) {
     showVid.classList.add('glitch');
     setTimeout(() => showVid.classList.remove('glitch'), 180);
