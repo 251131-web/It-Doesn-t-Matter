@@ -297,6 +297,9 @@ let nextCutTimeout;
 
 async function playRandomSegment() {
 
+  if (isTransitioning) return;
+  isTransitioning = true;
+
   currentDimension = chooseNextDimension();
 
   dimensionName.textContent = currentDimension;
@@ -308,8 +311,7 @@ async function playRandomSegment() {
   inactiveVideo.src = selectedClip;
   inactiveVideo.load();
 
-  inactiveVideo.oncanplay = null;
-  inactiveVideo.oncanplay = () => {
+  inactiveVideo.onloadedmetadata = () => {
 
     const safeDuration =
       inactiveVideo.duration - MIN_START_BUFFER;
@@ -319,32 +321,25 @@ async function playRandomSegment() {
       Math.random() * (safeDuration - MIN_CLIP_LENGTH)
     );
 
-    const randomLength =
-  randomRange(
-    MIN_CLIP_LENGTH,
-    MAX_CLIP_LENGTH
-  ) * (Math.random() > 0.8 ? 0.5 : 1);
+    const randomLength = randomRange(
+      MIN_CLIP_LENGTH,
+      MAX_CLIP_LENGTH
+    );
 
     inactiveVideo.currentTime = randomStart;
 
     inactiveVideo.volume = 0;
 
     inactiveVideo.play().catch(err => {
-  console.log("Playback prevented:", err);
-});
+      console.log("Playback prevented:", err);
+    });
 
-    // Fade visuals
     inactiveVideo.style.opacity = 1;
     activeVideo.style.opacity = 0;
 
-    // Slow cinematic zoom
-    inactiveVideo.style.transform =
-      'scale(1.08)';
+    inactiveVideo.style.transform = 'scale(1.08)';
+    activeVideo.style.transform = 'scale(1.00)';
 
-    activeVideo.style.transform =
-      'scale(1.00)';
-
-    // AUDIO CROSSFADE
     let fade = 0;
 
     const fadeInterval = setInterval(() => {
@@ -358,34 +353,36 @@ async function playRandomSegment() {
 
       if (fade >= 1) {
 
-  clearInterval(fadeInterval);
+        clearInterval(fadeInterval);
 
-  setTimeout(() => {
-    activeVideo.pause();
+        setTimeout(() => {
+          activeVideo.pause();
 
-activeVideo.removeAttribute('src');
-activeVideo.load();
-  }, 300);
+          activeVideo.removeAttribute('src');
+          activeVideo.load();
 
-}
+        }, 300);
+      }
 
     }, 100);
 
     cutCount++;
-
     cutCounter.textContent = cutCount;
-	
-	triggerGlitch();
 
-    // Swap videos
+    triggerGlitch();
+
     [activeVideo, inactiveVideo] =
       [inactiveVideo, activeVideo];
 
     clearTimeout(nextCutTimeout);
 
-nextCutTimeout = setTimeout(() => {
-  playRandomSegment();
-}, randomLength * 1000);
+    nextCutTimeout = setTimeout(() => {
+      playRandomSegment();
+    }, randomLength * 1000);
+
+    setTimeout(() => {
+      isTransitioning = false;
+    }, 1200);
   };
 }
 
