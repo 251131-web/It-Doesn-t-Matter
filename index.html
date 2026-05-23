@@ -22,7 +22,7 @@
       animation: grainShift 0.25s steps(2) infinite;
     }
     @keyframes grainShift {
-      0%  { transform: translate(0,0); }   25% { transform: translate(-1%,1%); }
+      0%  { transform: translate(0,0); }    25% { transform: translate(-1%,1%); }
       50% { transform: translate(1%,-1%); } 75% { transform: translate(1%,1%); }
     }
     #vignette {
@@ -49,7 +49,7 @@
     #startButton:hover { transform: scale(1.05); }
     .glitch { animation: glitch 0.18s linear; }
     @keyframes glitch {
-      0%  { transform: translate(0,0); }    25% { transform: translate(-5px,2px); }
+      0%  { transform: translate(0,0); }     25% { transform: translate(-5px,2px); }
       50% { transform: translate(5px,-2px); } 75% { transform: translate(-2px,-4px); }
       100%{ transform: translate(0,0); }
     }
@@ -66,11 +66,11 @@
 </div>
 
 <div id="videoContainer">
-  <!-- crossOrigin="anonymous" is required for Web Audio API to process
-       video from a different origin (GitHub Pages). Without it, the
-       AudioContext will refuse to connect the media source. -->
-  <video id="vidA" playsinline muted preload="auto" crossorigin="anonymous"></video>
-  <video id="vidB" playsinline muted preload="auto" crossorigin="anonymous"></video>
+  <!-- Start muted so preloading is never blocked.
+       The muted attribute is REMOVED after the user clicks Enter,
+       which permanently unlocks audio for both elements. -->
+  <video id="vidA" playsinline muted preload="auto"></video>
+  <video id="vidB" playsinline muted preload="auto"></video>
 </div>
 
 <div id="grain"></div>
@@ -95,7 +95,7 @@ const seedLabel   = document.getElementById('seedDisplay');
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 const MIN_CLIP = 5;
 const MAX_CLIP = 12;
-const BUFFER   = 2;  // avoid seeking within last N secs of a file
+const BUFFER   = 2;
 
 // ── ADD YOUR VIDEOS HERE ──────────────────────────────────────────────────────
 const dimensions = {
@@ -112,9 +112,9 @@ let cutCount   = 0;
 let showVid    = vidA;
 let hideVid    = vidB;
 let cutTimer   = null;
+let audioUnlocked = false;
 
-// Pending preload — stored at module scope, NOT on the video element,
-// so swapping showVid/hideVid never corrupts it.
+// pending is module-scoped so vid swaps never corrupt it
 let pending = { dim: null, clip: null, promise: null };
 
 // ── SEED ──────────────────────────────────────────────────────────────────────
@@ -137,31 +137,22 @@ function pickClip(dim) {
   return c;
 }
 
-// ── AUDIO ─────────────────────────────────────────────────────────────────────
-let audioCtx;
-
-function initAudio() {
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+// ── AUDIO UNLOCK ──────────────────────────────────────────────────────────────
+// Called once, synchronously inside the click handler.
+// Removes the `muted` attribute from both videos permanently.
+// Chrome tracks which elements were unmuted during a gesture and
+// allows them to play with audio for the rest of the session.
+function unlockAudio() {
   [vidA, vidB].forEach(vid => {
-    const src  = audioCtx.createMediaElementSource(vid);
-    const gain = audioCtx.createGain();
-    gain.gain.value = 0;
-    src.connect(gain).connect(audioCtx.destination);
-    vid._gain = gain;
+    vid.removeAttribute('muted'); // must use removeAttribute, not .muted = false
+    vid.volume = 0;               // start silent; we control volume per-swap
   });
-}
-
-function audioOn(vid) {
-  if (audioCtx) vid._gain.gain.setValueAtTime(1, audioCtx.currentTime);
-}
-function audioOff(vid) {
-  if (audioCtx) vid._gain.gain.setValueAtTime(0, audioCtx.currentTime);
+  audioUnlocked = true;
 }
 
 // ── PRELOAD ───────────────────────────────────────────────────────────────────
 function preloadClip(vid, clip) {
   return new Promise((resolve) => {
-    // Only re-load if the src changed
     const fullUrl = new URL(clip, location.href).href;
     if (vid.src !== fullUrl) {
       vid.onloadedmetadata = null;
@@ -177,23 +168,20 @@ function preloadClip(vid, clip) {
 
       let done = false;
       const finish = () => { if (!done) { done = true; resolve(); } };
-
       vid.addEventListener('seeked', finish, { once: true });
-      setTimeout(finish, 1000); // fallback if seeked never fires
+      setTimeout(finish, 1000);
     }
 
     if (vid.readyState >= 1) {
       doSeek();
     } else {
       vid.onloadedmetadata = doSeek;
-      vid.onerror = () => resolve(); // resolve even on error so we don't hang
+      vid.onerror = () => resolve();
     }
   });
 }
 
 // ── KICK NEXT PRELOAD ─────────────────────────────────────────────────────────
-// Always called right after a cut. Uses the current value of hideVid,
-// which by that point is already the outgoing (soon-to-be-reused) element.
 function kickPreload() {
   const dim  = pickDim();
   const clip = pickClip(dim);
@@ -206,13 +194,11 @@ function kickPreload() {
 async function cut() {
   clearTimeout(cutTimer);
 
-  // Wait for the preload started during the previous clip
   await pending.promise;
 
-  // Resume AudioContext if Chrome suspended it
-  if (audioCtx?.state === 'suspended') await audioCtx.resume();
+  // Silence the incoming video before play() so there's no blip
+  hideVid.volume = 0;
 
-  // Play the preloaded clip — muted at element level so never blocked
   try {
     await hideVid.play();
   } catch(e) {
@@ -221,25 +207,23 @@ async function cut() {
     return;
   }
 
-  // ── Swap ──────────────────────────────────────────────────────────────────
   const incoming = hideVid;
   const outgoing = showVid;
 
+  // Visual swap
   incoming.style.opacity = '1';
   outgoing.style.opacity = '0';
 
-  audioOn(incoming);
-  audioOff(outgoing);
-
+  // Audio swap — incoming full volume, outgoing silent, then stop
+  incoming.volume = 1;
+  outgoing.volume = 0;
   setTimeout(() => outgoing.pause(), 700);
 
-  // Update dim/clip tracking
+  // Update tracking
   currentDim = pending.dim || currentDim;
   lastClip   = pending.clip || lastClip;
   dimLabel.textContent = currentDim;
 
-  // Flip references — AFTER kickPreload reads hideVid above,
-  // but BEFORE we call kickPreload for the next round
   [showVid, hideVid] = [incoming, outgoing];
 
   cutCount++;
@@ -250,19 +234,19 @@ async function cut() {
     setTimeout(() => incoming.classList.remove('glitch'), 180);
   }
 
-  // Kick the next preload immediately so it has the full clip duration to load
   kickPreload();
-
-  const clipLen = range(MIN_CLIP, MAX_CLIP);
-  cutTimer = setTimeout(cut, clipLen * 1000);
+  cutTimer = setTimeout(cut, range(MIN_CLIP, MAX_CLIP) * 1000);
 }
 
 // ── START ─────────────────────────────────────────────────────────────────────
 startBtn.addEventListener('click', () => {
   startScreen.style.display = 'none';
-  initAudio(); // must be synchronous inside the gesture
 
-  // Seed the first preload, then cut as soon as it's ready
+  // Unlock audio synchronously inside the gesture — this is the key.
+  // After this point both video elements are permanently unmuted and
+  // Chrome will allow them to play with audio for the rest of the session.
+  unlockAudio();
+
   const dim  = pickDim();
   const clip = pickClip(dim);
   pending.dim     = dim;
