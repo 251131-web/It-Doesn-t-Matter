@@ -416,19 +416,21 @@ videoB.muted = false;
 
     document.addEventListener('keydown', (event) => {
 
-      // SPACE = force dimension jump
-      if (event.code === 'Space') {
+  // SPACE = force dimension jump
+  if (event.code === 'Space') {
 
-  clearTimeout(nextCutTimeout);
+    clearTimeout(nextCutTimeout);
 
-  playRandomSegment();
-}}
+    playRandomSegment();
+  }
 
-      // G = glitch
-      if (event.key.toLowerCase() === 'g') {
-  triggerGlitch();
-}
-    });
+  // G = glitch
+  if (event.key.toLowerCase() === 'g') {
+
+    triggerGlitch();
+  }
+
+});
 
   </script>
 
