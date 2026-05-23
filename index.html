@@ -259,7 +259,7 @@
       inactiveVideo.onloadedmetadata = null;
 
       inactiveVideo.src = selectedClip;
-      inactiveVideo.volume = 0;
+      inactiveVideo.volume = 0; // silenced before play() to prevent any blip
       inactiveVideo.load();
 
       inactiveVideo.onloadedmetadata = async () => {
@@ -289,21 +289,11 @@
         incomingVideo.style.opacity = '1';
         outgoingVideo.style.opacity = '0';
 
-        // Cross-fade audio — use captured refs so the interval
-        // always targets the right elements regardless of the swap
-        incomingVideo.volume = 0;
-        let fade = 0;
-
-        const fadeInterval = setInterval(() => {
-          fade = Math.min(fade + 0.05, 1);
-          incomingVideo.volume = fade;
-          outgoingVideo.volume = 1 - fade;
-
-          if (fade >= 1) {
-            clearInterval(fadeInterval);
-            setTimeout(() => outgoingVideo.pause(), 300);
-          }
-        }, 50);
+        // Instant audio swap — incoming plays at full volume immediately,
+        // outgoing is silenced. No fade needed; clips are short.
+        incomingVideo.volume = 1;
+        outgoingVideo.volume = 0;
+        setTimeout(() => outgoingVideo.pause(), 700);
 
         // Update counters
         cutCount++;
