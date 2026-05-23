@@ -333,22 +333,17 @@ lastClip = selectedClip;
 
 inactiveVideo.currentTime = randomStart;
 
-inactiveVideo.onseeked = async () => {
+setTimeout(async () => {
 
   try {
 
     await inactiveVideo.play();
 
-    // ONLY fade once playback actually starts
-    requestAnimationFrame(() => {
+    inactiveVideo.style.opacity = 1;
+    activeVideo.style.opacity = 0;
 
-      inactiveVideo.style.opacity = 1;
-      activeVideo.style.opacity = 0;
-
-      inactiveVideo.style.transform = 'scale(1.08)';
-      activeVideo.style.transform = 'scale(1.00)';
-
-    });
+    inactiveVideo.style.transform = 'scale(1.08)';
+    activeVideo.style.transform = 'scale(1.00)';
 
   } catch(err) {
 
@@ -356,7 +351,7 @@ inactiveVideo.onseeked = async () => {
 
   }
 
-};
+}, 100);
 
     let fade = 0;
 
