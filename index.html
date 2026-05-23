@@ -242,7 +242,6 @@ let inactiveVideo = videoB;
 
     seedDisplay.textContent = realitySeed;
 
-let isTransitioning = false;
 let nextCutTimeout;
 
     // ============================================
@@ -265,8 +264,8 @@ let nextCutTimeout;
 
       const roll = Math.random();
 
-      // 55% chance to stay in same dimension
-      if (roll < 0.55) {
+      // 35% chance to stay in same dimension
+      if (roll < 0.35) {
         return currentDimension;
       }
 
@@ -297,9 +296,6 @@ let nextCutTimeout;
 
 async function playRandomSegment() {
 
-  if (isTransitioning) return;
-  isTransitioning = true;
-
   currentDimension = chooseNextDimension();
 
   dimensionName.textContent = currentDimension;
@@ -326,13 +322,17 @@ async function playRandomSegment() {
       MAX_CLIP_LENGTH
     );
 
-    inactiveVideo.currentTime = randomStart;
-
     inactiveVideo.volume = 0;
 
-    inactiveVideo.play().catch(err => {
-      console.log("Playback prevented:", err);
-    });
+inactiveVideo.currentTime = randomStart;
+
+inactiveVideo.onseeked = () => {
+
+  inactiveVideo.play().catch(err => {
+    console.log("Playback prevented:", err);
+  });
+
+};
 
     inactiveVideo.style.opacity = 1;
     activeVideo.style.opacity = 0;
@@ -356,12 +356,8 @@ async function playRandomSegment() {
         clearInterval(fadeInterval);
 
         setTimeout(() => {
-          activeVideo.pause();
-
-          activeVideo.removeAttribute('src');
-          activeVideo.load();
-
-        }, 300);
+  activeVideo.pause();
+}, 300);
       }
 
     }, 100);
@@ -379,10 +375,6 @@ async function playRandomSegment() {
     nextCutTimeout = setTimeout(() => {
       playRandomSegment();
     }, randomLength * 1000);
-
-    setTimeout(() => {
-      isTransitioning = false;
-    }, 1200);
   };
 }
 
