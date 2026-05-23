@@ -243,6 +243,7 @@ let inactiveVideo = videoB;
     seedDisplay.textContent = realitySeed;
 
 let nextCutTimeout;
+let lastClip = '';
 
     // ============================================
     // RANDOM HELPERS
@@ -302,7 +303,13 @@ async function playRandomSegment() {
 
   const clips = dimensions[currentDimension];
 
-  const selectedClip = randomItem(clips);
+  let selectedClip = randomItem(clips);
+
+while (selectedClip === lastClip && clips.length > 1) {
+  selectedClip = randomItem(clips);
+}
+
+lastClip = selectedClip;
 
   inactiveVideo.src = selectedClip;
   inactiveVideo.load();
