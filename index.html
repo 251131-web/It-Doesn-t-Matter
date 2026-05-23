@@ -19,16 +19,32 @@
       color: white;
     }
 
-    video {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      object-fit: cover;
-      background: black;
-      transition: opacity 0.6s ease;
-    }
+    #videoContainer {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: black;
+}
+
+video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+
+  opacity: 0;
+
+  transition:
+    opacity 2s ease,
+    transform 8s ease;
+
+  filter:
+    contrast(1.05)
+    brightness(0.95);
+
+  transform: scale(1.02);
+}
 
     #overlay {
       position: fixed;
@@ -42,6 +58,30 @@
       opacity: 0.4;
       animation: pulse 6s infinite alternate ease-in-out;
     }
+	
+	#grain {
+  position: fixed;
+  inset: 0;
+
+  pointer-events: none;
+
+  opacity: 0.08;
+
+  mix-blend-mode: soft-light;
+
+  background-image:
+    url('https://grainy-gradients.vercel.app/noise.svg');
+
+  animation: grainMove 0.3s steps(2) infinite;
+}
+
+@keyframes grainMove {
+  0% { transform: translate(0,0); }
+  25% { transform: translate(-1%,1%); }
+  50% { transform: translate(1%,-1%); }
+  75% { transform: translate(1%,1%); }
+  100% { transform: translate(0,0); }
+}
 
     @keyframes pulse {
       from {
@@ -119,9 +159,17 @@
     <button id="startButton">ENTER</button>
   </div>
 
-  <video id="film" autoplay playsinline></video>
+  <div id="videoContainer">
+
+  <video id="videoA" autoplay playsinline muted></video>
+
+  <video id="videoB" autoplay playsinline muted></video>
+
+</div>
 
   <div id="overlay"></div>
+  
+  <div id="grain"></div>
 
   <div id="info">
     <div><strong>Dimension:</strong> <span id="dimensionName">Unknown</span></div>
@@ -130,7 +178,11 @@
   </div>
 
   <script>
-    const video = document.getElementById('film');
+    const videoA = document.getElementById('videoA');
+const videoB = document.getElementById('videoB');
+
+let activeVideo = videoA;
+let inactiveVideo = videoB;
     const startButton = document.getElementById('startButton');
     const startScreen = document.getElementById('startScreen');
     const dimensionName = document.getElementById('dimensionName');
@@ -235,53 +287,85 @@
     // MAIN PLAYBACK SYSTEM
     // ============================================
 
-    async function playRandomSegment() {
+async function playRandomSegment() {
 
-      currentDimension = chooseNextDimension();
+  currentDimension = chooseNextDimension();
 
-      dimensionName.textContent = currentDimension;
+  dimensionName.textContent = currentDimension;
 
-      const clips = dimensions[currentDimension];
+  const clips = dimensions[currentDimension];
 
-      const selectedClip = randomItem(clips);
+  const selectedClip = randomItem(clips);
 
-      video.style.opacity = 0;
+  inactiveVideo.src = selectedClip;
 
-      setTimeout(() => {
-        video.src = selectedClip;
-      }, 250);
+  inactiveVideo.onloadedmetadata = () => {
 
-      video.onloadedmetadata = () => {
+    const safeDuration =
+      inactiveVideo.duration - MIN_START_BUFFER;
 
-        const safeDuration = video.duration - MIN_START_BUFFER;
+    const randomStart = Math.max(
+      0,
+      Math.random() * (safeDuration - MIN_CLIP_LENGTH)
+    );
 
-        const randomStart = Math.max(
-          0,
-          Math.random() * (safeDuration - MIN_CLIP_LENGTH)
-        );
+    const randomLength = randomRange(
+      MIN_CLIP_LENGTH,
+      MAX_CLIP_LENGTH
+    );
 
-        const randomLength = randomRange(
-          MIN_CLIP_LENGTH,
-          MAX_CLIP_LENGTH
-        );
+    inactiveVideo.currentTime = randomStart;
 
-        video.currentTime = randomStart;
+    inactiveVideo.volume = 0;
 
-        video.play();
+    inactiveVideo.play();
 
-        video.style.opacity = 1;
+    // Fade visuals
+    inactiveVideo.style.opacity = 1;
+    activeVideo.style.opacity = 0;
 
-        cutCount++;
+    // Slow cinematic zoom
+    inactiveVideo.style.transform =
+      'scale(1.08)';
 
-        cutCounter.textContent = cutCount;
+    activeVideo.style.transform =
+      'scale(1.00)';
 
-        triggerGlitch();
+    // AUDIO CROSSFADE
+    let fade = 0;
 
-        setTimeout(() => {
-          playRandomSegment();
-        }, randomLength * 1000);
-      };
-    }
+    const fadeInterval = setInterval(() => {
+
+      fade += 0.05;
+
+      inactiveVideo.volume = Math.min(fade, 1);
+
+      activeVideo.volume =
+        Math.max(1 - fade, 0);
+
+      if (fade >= 1) {
+        clearInterval(fadeInterval);
+
+        activeVideo.pause();
+      }
+
+    }, 100);
+
+    cutCount++;
+
+    cutCounter.textContent = cutCount;
+
+    triggerGlitch();
+
+    // Swap videos
+    [activeVideo, inactiveVideo] =
+      [inactiveVideo, activeVideo];
+
+    setTimeout(() => {
+      playRandomSegment();
+    }, randomLength * 1000);
+  };
+}
 
     // ============================================
     // START EXPERIENCE
