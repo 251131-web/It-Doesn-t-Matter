@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dimension Film</title>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: black;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+      color: white;
+    }
+
+    video {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      background: black;
+      transition: opacity 0.6s ease;
+    }
+
+    #overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      background: radial-gradient(circle, transparent 60%, rgba(0,0,0,0.4));
+      mix-blend-mode: screen;
+      opacity: 0.4;
+      animation: pulse 6s infinite alternate ease-in-out;
+    }
+
+    @keyframes pulse {
+      from {
+        opacity: 0.2;
+      }
+      to {
+        opacity: 0.5;
+      }
+    }
+
+    #info {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      z-index: 100;
+      background: rgba(0,0,0,0.5);
+      padding: 12px 16px;
+      border-radius: 12px;
+      backdrop-filter: blur(8px);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    #startScreen {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      background: black;
+      z-index: 999;
+      text-align: center;
+      padding: 24px;
+    }
+
+    #startButton {
+      margin-top: 20px;
+      padding: 14px 28px;
+      font-size: 18px;
+      border: none;
+      border-radius: 999px;
+      background: white;
+      color: black;
+      cursor: pointer;
+      transition: transform 0.2s ease;
+    }
+
+    #startButton:hover {
+      transform: scale(1.05);
+    }
+
+    .glitch {
+      animation: glitch 0.2s linear;
+    }
+
+    @keyframes glitch {
+      0% { transform: translate(0px, 0px); }
+      25% { transform: translate(-5px, 2px); }
+      50% { transform: translate(5px, -2px); }
+      75% { transform: translate(-2px, -4px); }
+      100% { transform: translate(0px, 0px); }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="startScreen">
+    <h1>DIMENSION FILM</h1>
+    <p style="margin-top: 12px; max-width: 600px; opacity: 0.8;">
+      Every viewing is different.<br>
+      The dimensions rearrange themselves each time.
+    </p>
+
+    <button id="startButton">ENTER</button>
+  </div>
+
+  <video id="film" autoplay playsinline></video>
+
+  <div id="overlay"></div>
+
+  <div id="info">
+    <div><strong>Dimension:</strong> <span id="dimensionName">Unknown</span></div>
+    <div><strong>Cuts:</strong> <span id="cutCounter">0</span></div>
+    <div><strong>Reality Seed:</strong> <span id="seedDisplay"></span></div>
+  </div>
+
+  <script>
+    const video = document.getElementById('film');
+    const startButton = document.getElementById('startButton');
+    const startScreen = document.getElementById('startScreen');
+    const dimensionName = document.getElementById('dimensionName');
+    const cutCounter = document.getElementById('cutCounter');
+    const seedDisplay = document.getElementById('seedDisplay');
+
+    // ============================================
+    // ADD YOUR VIDEO FILES HERE
+    // ============================================
+
+    const dimensions = {
+      MEMORY: [
+        'videos/memory1.mp4',
+        'videos/memory2.mp4'
+      ],
+
+      HORROR: [
+        'videos/horror1.mp4',
+        'videos/horror2.mp4'
+      ],
+
+      DREAM: [
+        'videos/dream1.mp4',
+        'videos/dream2.mp4'
+      ],
+
+      VOID: [
+        'videos/void1.mp4',
+        'videos/void2.mp4'
+      ]
+    };
+
+    // ============================================
+    // SETTINGS
+    // ============================================
+
+    const MIN_CLIP_LENGTH = 2;
+    const MAX_CLIP_LENGTH = 8;
+
+    const MIN_START_BUFFER = 1;
+
+    let cutCount = 0;
+    let currentDimension = 'MEMORY';
+
+    // Create a persistent random seed for each viewer
+    let realitySeed = localStorage.getItem('realitySeed');
+
+    if (!realitySeed) {
+      realitySeed = Math.random().toString(36).substring(2, 10);
+      localStorage.setItem('realitySeed', realitySeed);
+    }
+
+    seedDisplay.textContent = realitySeed;
+
+    // ============================================
+    // RANDOM HELPERS
+    // ============================================
+
+    function randomItem(array) {
+      return array[Math.floor(Math.random() * array.length)];
+    }
+
+    function randomRange(min, max) {
+      return Math.random() * (max - min) + min;
+    }
+
+    // ============================================
+    // DIMENSION LOGIC
+    // ============================================
+
+    function chooseNextDimension() {
+
+      const roll = Math.random();
+
+      // 55% chance to stay in same dimension
+      if (roll < 0.55) {
+        return currentDimension;
+      }
+
+      const keys = Object.keys(dimensions);
+
+      return randomItem(keys);
+    }
+
+    // ============================================
+    // GLITCH EFFECTS
+    // ============================================
+
+    function triggerGlitch() {
+
+      if (Math.random() > 0.75) {
+
+        video.classList.add('glitch');
+
+        setTimeout(() => {
+          video.classList.remove('glitch');
+        }, 200);
+      }
+    }
+
+    // ============================================
+    // MAIN PLAYBACK SYSTEM
+    // ============================================
+
+    async function playRandomSegment() {
+
+      currentDimension = chooseNextDimension();
+
+      dimensionName.textContent = currentDimension;
+
+      const clips = dimensions[currentDimension];
+
+      const selectedClip = randomItem(clips);
+
+      video.style.opacity = 0;
+
+      setTimeout(() => {
+        video.src = selectedClip;
+      }, 250);
+
+      video.onloadedmetadata = () => {
+
+        const safeDuration = video.duration - MIN_START_BUFFER;
+
+        const randomStart = Math.max(
+          0,
+          Math.random() * (safeDuration - MIN_CLIP_LENGTH)
+        );
+
+        const randomLength = randomRange(
+          MIN_CLIP_LENGTH,
+          MAX_CLIP_LENGTH
+        );
+
+        video.currentTime = randomStart;
+
+        video.play();
+
+        video.style.opacity = 1;
+
+        cutCount++;
+
+        cutCounter.textContent = cutCount;
+
+        triggerGlitch();
+
+        setTimeout(() => {
+          playRandomSegment();
+        }, randomLength * 1000);
+      };
+    }
+
+    // ============================================
+    // START EXPERIENCE
+    // ============================================
+
+    startButton.addEventListener('click', async () => {
+
+      startScreen.style.display = 'none';
+
+      video.muted = false;
+
+      playRandomSegment();
+    });
+
+    // ============================================
+    // OPTIONAL: KEYBOARD CONTROLS
+    // ============================================
+
+    document.addEventListener('keydown', (event) => {
+
+      // SPACE = force dimension jump
+      if (event.code === 'Space') {
+        playRandomSegment();
+      }
+
+      // G = glitch
+      if (event.key.toLowerCase() === 'g') {
+        triggerGlitch();
+      }
+    });
+
+  </script>
+
+</body>
+</html>
