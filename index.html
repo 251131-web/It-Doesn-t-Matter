@@ -362,6 +362,9 @@ async function playRandomSegment() {
 
   setTimeout(() => {
     activeVideo.pause();
+
+activeVideo.removeAttribute('src');
+activeVideo.load();
   }, 300);
 
 }
@@ -382,7 +385,7 @@ async function playRandomSegment() {
 
 nextCutTimeout = setTimeout(() => {
   playRandomSegment();
-}, randomLength * 1500);
+}, randomLength * 1000);
   };
 }
 
