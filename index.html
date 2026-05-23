@@ -355,7 +355,17 @@ async function playRandomSegment() {
 
     cutCounter.textContent = cutCount;
 
-    triggerGlitch();
+ function triggerGlitch() {
+
+  if (Math.random() > 0.75) {
+
+    activeVideo.classList.add('glitch');
+
+    setTimeout(() => {
+      activeVideo.classList.remove('glitch');
+    }, 200);
+  }
+}
 
     // Swap videos
     [activeVideo, inactiveVideo] =
@@ -375,7 +385,8 @@ async function playRandomSegment() {
 
       startScreen.style.display = 'none';
 
-      video.muted = false;
+      videoA.muted = false;
+videoB.muted = false;
 
       playRandomSegment();
     });
