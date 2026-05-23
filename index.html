@@ -243,6 +243,7 @@ let inactiveVideo = videoB;
     seedDisplay.textContent = realitySeed;
 
 let isTransitioning = false;
+let nextCutTimeout;
 
     // ============================================
     // RANDOM HELPERS
@@ -376,9 +377,11 @@ async function playRandomSegment() {
     [activeVideo, inactiveVideo] =
       [inactiveVideo, activeVideo];
 
-    setTimeout(() => {
-      playRandomSegment();
-    }, randomLength * 1000);
+    clearTimeout(nextCutTimeout);
+
+nextCutTimeout = setTimeout(() => {
+  playRandomSegment();
+}, randomLength * 1000);;
   };
 }
 
