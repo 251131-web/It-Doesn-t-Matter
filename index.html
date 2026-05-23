@@ -224,8 +224,8 @@ let inactiveVideo = videoB;
     // SETTINGS
     // ============================================
 
-    const MIN_CLIP_LENGTH = 3;
-    const MAX_CLIP_LENGTH = 7;
+    const MIN_CLIP_LENGTH = 5;
+    const MAX_CLIP_LENGTH = 12;
 
     const MIN_START_BUFFER = 1;
 
@@ -381,7 +381,7 @@ async function playRandomSegment() {
 
 nextCutTimeout = setTimeout(() => {
   playRandomSegment();
-}, randomLength * 500);;
+}, randomLength * 1500);;
   };
 }
 
