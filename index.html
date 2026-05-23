@@ -66,11 +66,10 @@
 </div>
 
 <div id="videoContainer">
-  <!-- Start muted so preloading is never blocked.
-       The muted attribute is REMOVED after the user clicks Enter,
-       which permanently unlocks audio for both elements. -->
-  <video id="vidA" playsinline muted preload="auto"></video>
-  <video id="vidB" playsinline muted preload="auto"></video>
+  <!-- No muted attribute. Both start at volume=0 in JS.
+       The active video gets volume=1, the idle one stays at volume=0. -->
+  <video id="vidA" playsinline preload="auto"></video>
+  <video id="vidB" playsinline preload="auto"></video>
 </div>
 
 <div id="grain"></div>
@@ -112,10 +111,11 @@ let cutCount   = 0;
 let showVid    = vidA;
 let hideVid    = vidB;
 let cutTimer   = null;
-let audioUnlocked = false;
+let pending    = { dim: null, clip: null, promise: null };
 
-// pending is module-scoped so vid swaps never corrupt it
-let pending = { dim: null, clip: null, promise: null };
+// Both videos silent until it's their turn
+vidA.volume = 0;
+vidB.volume = 0;
 
 // ── SEED ──────────────────────────────────────────────────────────────────────
 let seed = localStorage.getItem('realitySeed');
@@ -137,19 +137,6 @@ function pickClip(dim) {
   return c;
 }
 
-// ── AUDIO UNLOCK ──────────────────────────────────────────────────────────────
-// Called once, synchronously inside the click handler.
-// Removes the `muted` attribute from both videos permanently.
-// Chrome tracks which elements were unmuted during a gesture and
-// allows them to play with audio for the rest of the session.
-function unlockAudio() {
-  [vidA, vidB].forEach(vid => {
-    vid.removeAttribute('muted'); // must use removeAttribute, not .muted = false
-    vid.volume = 0;               // start silent; we control volume per-swap
-  });
-  audioUnlocked = true;
-}
-
 // ── PRELOAD ───────────────────────────────────────────────────────────────────
 function preloadClip(vid, clip) {
   return new Promise((resolve) => {
@@ -165,7 +152,6 @@ function preloadClip(vid, clip) {
       const safe  = Math.max(0, vid.duration - BUFFER - MIN_CLIP);
       const start = range(0, Math.max(0, safe));
       vid.currentTime = start;
-
       let done = false;
       const finish = () => { if (!done) { done = true; resolve(); } };
       vid.addEventListener('seeked', finish, { once: true });
@@ -196,13 +182,13 @@ async function cut() {
 
   await pending.promise;
 
-  // Silence the incoming video before play() so there's no blip
+  // Keep incoming silent until it's fully playing
   hideVid.volume = 0;
 
   try {
     await hideVid.play();
   } catch(e) {
-    console.warn('play() blocked, retrying:', e);
+    console.warn('play() blocked:', e);
     cutTimer = setTimeout(cut, 500);
     return;
   }
@@ -214,12 +200,11 @@ async function cut() {
   incoming.style.opacity = '1';
   outgoing.style.opacity = '0';
 
-  // Audio swap — incoming full volume, outgoing silent, then stop
+  // Audio swap — incoming on, outgoing off
   incoming.volume = 1;
   outgoing.volume = 0;
   setTimeout(() => outgoing.pause(), 700);
 
-  // Update tracking
   currentDim = pending.dim || currentDim;
   lastClip   = pending.clip || lastClip;
   dimLabel.textContent = currentDim;
@@ -241,11 +226,6 @@ async function cut() {
 // ── START ─────────────────────────────────────────────────────────────────────
 startBtn.addEventListener('click', () => {
   startScreen.style.display = 'none';
-
-  // Unlock audio synchronously inside the gesture — this is the key.
-  // After this point both video elements are permanently unmuted and
-  // Chrome will allow them to play with audio for the rest of the session.
-  unlockAudio();
 
   const dim  = pickDim();
   const clip = pickClip(dim);
