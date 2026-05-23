@@ -142,8 +142,8 @@
   </div>
 
   <div id="videoContainer">
-    <video id="videoA" playsinline preload="auto"></video>
-    <video id="videoB" playsinline preload="auto"></video>
+    <video id="videoA" playsinline muted preload="auto"></video>
+    <video id="videoB" playsinline muted preload="auto"></video>
   </div>
 
   <div id="overlay"></div>
@@ -166,6 +166,26 @@
 
     let activeVideo = videoA;
     let inactiveVideo = videoB;
+
+    // Web Audio API — videos stay muted (so browser never blocks them),
+    // gain nodes control what the user actually hears.
+    let audioCtx, gainA, gainB;
+
+    function initAudio() {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const srcA = audioCtx.createMediaElementSource(videoA);
+      const srcB = audioCtx.createMediaElementSource(videoB);
+      gainA = audioCtx.createGain();
+      gainB = audioCtx.createGain();
+      gainA.gain.value = 0;
+      gainB.gain.value = 0;
+      srcA.connect(gainA).connect(audioCtx.destination);
+      srcB.connect(gainB).connect(audioCtx.destination);
+    }
+
+    function gainFor(video) {
+      return video === videoA ? gainA : gainB;
+    }
 
     // ============================================
     // ADD YOUR VIDEO FILES HERE
@@ -259,7 +279,6 @@
       inactiveVideo.onloadedmetadata = null;
 
       inactiveVideo.src = selectedClip;
-      inactiveVideo.volume = 0; // silenced before play() to prevent any blip
       inactiveVideo.load();
 
       inactiveVideo.onloadedmetadata = async () => {
@@ -289,10 +308,10 @@
         incomingVideo.style.opacity = '1';
         outgoingVideo.style.opacity = '0';
 
-        // Instant audio swap — incoming plays at full volume immediately,
-        // outgoing is silenced. No fade needed; clips are short.
-        incomingVideo.volume = 1;
-        outgoingVideo.volume = 0;
+        // Instant audio swap via gain nodes (video.volume is bypassed —
+        // videos are muted at element level; Web Audio carries the sound).
+        gainFor(incomingVideo).gain.value = 1;
+        gainFor(outgoingVideo).gain.value = 0;
         setTimeout(() => outgoingVideo.pause(), 700);
 
         // Update counters
@@ -325,10 +344,9 @@
     startButton.addEventListener('click', () => {
       startScreen.style.display = 'none';
 
-      // Videos are NOT muted — user gesture (the click) unlocks audio.
-      // Do NOT set muted here; the videos were never muted to begin with.
-      videoA.volume = 0;
-      videoB.volume = 0;
+      // Must init AudioContext synchronously inside the user gesture.
+      // Videos stay muted forever — gain nodes carry the audio instead.
+      initAudio();
 
       playRandomSegment();
     });
