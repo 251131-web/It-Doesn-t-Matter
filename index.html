@@ -20,36 +20,25 @@
     }
 
     #videoContainer {
-  position: fixed;
-  inset: 0;
-  overflow: hidden;
-  background: black;
-}
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      background: black;
+    }
 
-video {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-
-  opacity: 0;
-
-  transition:
-    opacity 0.6s ease,
-transform 6s ease;
-
-  filter:
-    contrast(1.05)
-    brightness(0.95);
-
-  transform: scale(1.02);
-  
- backface-visibility: hidden;
-perspective: 1000; 
-
-will-change: opacity, transform;
-}
+    video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0;
+      transition: opacity 0.6s ease, transform 6s ease;
+      filter: contrast(1.05) brightness(0.95);
+      transform: scale(1.02);
+      backface-visibility: hidden;
+      will-change: opacity, transform;
+    }
 
     #overlay {
       position: fixed;
@@ -63,38 +52,28 @@ will-change: opacity, transform;
       opacity: 0.4;
       animation: pulse 6s infinite alternate ease-in-out;
     }
-	
-	#grain {
-  position: fixed;
-  inset: 0;
 
-  pointer-events: none;
+    #grain {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.08;
+      mix-blend-mode: soft-light;
+      background-image: url('https://grainy-gradients.vercel.app/noise.svg');
+      animation: grainMove 0.3s steps(2) infinite;
+    }
 
-  opacity: 0.08;
-
-  mix-blend-mode: soft-light;
-
-  background-image:
-    url('https://grainy-gradients.vercel.app/noise.svg');
-
-  animation: grainMove 0.3s steps(2) infinite;
-}
-
-@keyframes grainMove {
-  0% { transform: translate(0,0); }
-  25% { transform: translate(-1%,1%); }
-  50% { transform: translate(1%,-1%); }
-  75% { transform: translate(1%,1%); }
-  100% { transform: translate(0,0); }
-}
+    @keyframes grainMove {
+      0%   { transform: translate(0,0); }
+      25%  { transform: translate(-1%,1%); }
+      50%  { transform: translate(1%,-1%); }
+      75%  { transform: translate(1%,1%); }
+      100% { transform: translate(0,0); }
+    }
 
     @keyframes pulse {
-      from {
-        opacity: 0.2;
-      }
-      to {
-        opacity: 0.5;
-      }
+      from { opacity: 0.2; }
+      to   { opacity: 0.5; }
     }
 
     #info {
@@ -144,10 +123,10 @@ will-change: opacity, transform;
     }
 
     @keyframes glitch {
-      0% { transform: translate(0px, 0px); }
-      25% { transform: translate(-5px, 2px); }
-      50% { transform: translate(5px, -2px); }
-      75% { transform: translate(-2px, -4px); }
+      0%   { transform: translate(0px, 0px); }
+      25%  { transform: translate(-5px, 2px); }
+      50%  { transform: translate(5px, -2px); }
+      75%  { transform: translate(-2px, -4px); }
       100% { transform: translate(0px, 0px); }
     }
   </style>
@@ -160,20 +139,15 @@ will-change: opacity, transform;
       Every viewing is different.<br>
       The dimensions rearrange themselves each time.
     </p>
-
     <button id="startButton">ENTER</button>
   </div>
 
   <div id="videoContainer">
-
-  <video id="videoA" autoplay playsinline muted preload="auto"></video>
-
-  <video id="videoB" autoplay playsinline muted preload="auto"></video>
-
-</div>
+    <video id="videoA" playsinline preload="auto"></video>
+    <video id="videoB" playsinline preload="auto"></video>
+  </div>
 
   <div id="overlay"></div>
-  
   <div id="grain"></div>
 
   <div id="info">
@@ -184,15 +158,15 @@ will-change: opacity, transform;
 
   <script>
     const videoA = document.getElementById('videoA');
-const videoB = document.getElementById('videoB');
-
-let activeVideo = videoA;
-let inactiveVideo = videoB;
+    const videoB = document.getElementById('videoB');
     const startButton = document.getElementById('startButton');
     const startScreen = document.getElementById('startScreen');
     const dimensionName = document.getElementById('dimensionName');
     const cutCounter = document.getElementById('cutCounter');
     const seedDisplay = document.getElementById('seedDisplay');
+
+    let activeVideo = videoA;
+    let inactiveVideo = videoB;
 
     // ============================================
     // ADD YOUR VIDEO FILES HERE
@@ -203,17 +177,14 @@ let inactiveVideo = videoB;
         'videos/memory1.mp4',
         'videos/memory2.mp4'
       ],
-
       HORROR: [
         'videos/horror1.mp4',
         'videos/horror2.mp4'
       ],
-
       DREAM: [
         'videos/dream1.mp4',
         'videos/dream2.mp4'
       ],
-
       VOID: [
         'videos/void1.mp4',
         'videos/void2.mp4'
@@ -224,29 +195,26 @@ let inactiveVideo = videoB;
     // SETTINGS
     // ============================================
 
-    const MIN_CLIP_LENGTH = 5;
-    const MAX_CLIP_LENGTH = 12;
-
+    const MIN_CLIP_LENGTH  = 5;
+    const MAX_CLIP_LENGTH  = 12;
     const MIN_START_BUFFER = 1;
 
     let cutCount = 0;
     let currentDimension = 'MEMORY';
+    let nextCutTimeout;
+    let lastClip = '';
+    let isCutting = false; // guard against overlapping cuts
 
-    // Create a persistent random seed for each viewer
+    // Persistent random seed
     let realitySeed = localStorage.getItem('realitySeed');
-
     if (!realitySeed) {
       realitySeed = Math.random().toString(36).substring(2, 10);
       localStorage.setItem('realitySeed', realitySeed);
     }
-
     seedDisplay.textContent = realitySeed;
 
-let nextCutTimeout;
-let lastClip = '';
-
     // ============================================
-    // RANDOM HELPERS
+    // HELPERS
     // ============================================
 
     function randomItem(array) {
@@ -257,176 +225,136 @@ let lastClip = '';
       return Math.random() * (max - min) + min;
     }
 
-    // ============================================
-    // DIMENSION LOGIC
-    // ============================================
-
     function chooseNextDimension() {
-
-      const roll = Math.random();
-
-      // 35% chance to stay in same dimension
-      if (roll < 0.35) {
-        return currentDimension;
-      }
-
-      const keys = Object.keys(dimensions);
-
-      return randomItem(keys);
+      if (Math.random() < 0.35) return currentDimension;
+      return randomItem(Object.keys(dimensions));
     }
 
-    // ============================================
-    // GLITCH EFFECTS
-    // ============================================
-
     function triggerGlitch() {
-
-  if (Math.random() > 0.92) {
-
-    activeVideo.classList.add('glitch');
-
-    setTimeout(() => {
-      activeVideo.classList.remove('glitch');
-    }, 200);
-  }
-}
+      if (Math.random() > 0.92) {
+        activeVideo.classList.add('glitch');
+        setTimeout(() => activeVideo.classList.remove('glitch'), 200);
+      }
+    }
 
     // ============================================
     // MAIN PLAYBACK SYSTEM
     // ============================================
 
-async function playRandomSegment() {
+    function playRandomSegment() {
+      if (isCutting) return;
+      isCutting = true;
 
-  currentDimension = chooseNextDimension();
+      currentDimension = chooseNextDimension();
+      dimensionName.textContent = currentDimension;
 
-  dimensionName.textContent = currentDimension;
+      const clips = dimensions[currentDimension];
 
-  const clips = dimensions[currentDimension];
-
-  let selectedClip = randomItem(clips);
-
-while (selectedClip === lastClip && clips.length > 1) {
-  selectedClip = randomItem(clips);
-}
-
-lastClip = selectedClip;
-
-  inactiveVideo.src = selectedClip;
-  inactiveVideo.load();
-
-  inactiveVideo.onloadedmetadata = () => {
-
-    const safeDuration =
-      inactiveVideo.duration - MIN_START_BUFFER;
-
-    const randomStart = Math.max(
-      0,
-      Math.random() * (safeDuration - MIN_CLIP_LENGTH)
-    );
-
-    const randomLength = randomRange(
-      MIN_CLIP_LENGTH,
-      MAX_CLIP_LENGTH
-    );
-
-    inactiveVideo.volume = 0;
-
-inactiveVideo.currentTime = randomStart;
-
-setTimeout(async () => {
-
-  try {
-
-    await inactiveVideo.play();
-
-    inactiveVideo.style.opacity = 1;
-    activeVideo.style.opacity = 0;
-
-    inactiveVideo.style.transform = 'scale(1.08)';
-    activeVideo.style.transform = 'scale(1.00)';
-
-  } catch(err) {
-
-    console.log("Playback prevented:", err);
-
-  }
-
-}, 100);
-
-    let fade = 0;
-
-    const fadeInterval = setInterval(() => {
-
-      fade += 0.025;
-
-      inactiveVideo.volume = Math.min(fade, 1);
-
-      activeVideo.volume =
-        Math.max(1 - fade, 0);
-
-      if (fade >= 1) {
-
-        clearInterval(fadeInterval);
-
-        setTimeout(() => {
-  activeVideo.pause();
-}, 300);
+      let selectedClip = randomItem(clips);
+      while (selectedClip === lastClip && clips.length > 1) {
+        selectedClip = randomItem(clips);
       }
+      lastClip = selectedClip;
 
-    }, 100);
+      // Detach any previous listener to avoid stacking
+      inactiveVideo.onloadedmetadata = null;
 
-    cutCount++;
-    cutCounter.textContent = cutCount;
+      inactiveVideo.src = selectedClip;
+      inactiveVideo.volume = 0;
+      inactiveVideo.load();
 
-    triggerGlitch();
+      inactiveVideo.onloadedmetadata = async () => {
+        const duration    = inactiveVideo.duration;
+        const safeDuration = Math.max(0, duration - MIN_START_BUFFER);
+        const randomStart  = Math.max(0, Math.random() * (safeDuration - MIN_CLIP_LENGTH));
+        const randomLength = randomRange(MIN_CLIP_LENGTH, MAX_CLIP_LENGTH);
 
-    [activeVideo, inactiveVideo] =
-      [inactiveVideo, activeVideo];
+        inactiveVideo.currentTime = randomStart;
 
-    clearTimeout(nextCutTimeout);
+        // Small delay so seek settles before play()
+        await new Promise(r => setTimeout(r, 80));
 
-    nextCutTimeout = setTimeout(() => {
-      playRandomSegment();
-    }, randomLength * 1000);
-  };
-}
+        try {
+          await inactiveVideo.play();
+        } catch (err) {
+          console.warn('Playback prevented:', err);
+          isCutting = false;
+          return;
+        }
+
+        // Cross-fade visuals
+        inactiveVideo.style.opacity = '1';
+        inactiveVideo.style.transform = 'scale(1.08)';
+        activeVideo.style.opacity = '0';
+        activeVideo.style.transform = 'scale(1.00)';
+
+        // Cross-fade audio
+        let fade = 0;
+        const outgoingVideo = activeVideo; // capture before swap
+
+        const fadeInterval = setInterval(() => {
+          fade = Math.min(fade + 0.025, 1);
+          inactiveVideo.volume = fade;
+          outgoingVideo.volume = 1 - fade;
+
+          if (fade >= 1) {
+            clearInterval(fadeInterval);
+            setTimeout(() => outgoingVideo.pause(), 300);
+          }
+        }, 100);
+
+        // Update counters
+        cutCount++;
+        cutCounter.textContent = cutCount;
+        triggerGlitch();
+
+        // Swap active/inactive references
+        [activeVideo, inactiveVideo] = [inactiveVideo, activeVideo];
+
+        isCutting = false;
+
+        // Schedule next cut
+        clearTimeout(nextCutTimeout);
+        nextCutTimeout = setTimeout(playRandomSegment, randomLength * 1000);
+      };
+
+      // If metadata never loads (bad path etc.), recover gracefully
+      inactiveVideo.onerror = () => {
+        console.warn('Video failed to load:', selectedClip);
+        isCutting = false;
+        nextCutTimeout = setTimeout(playRandomSegment, 2000);
+      };
+    }
 
     // ============================================
     // START EXPERIENCE
     // ============================================
 
-    startButton.addEventListener('click', async () => {
-
+    startButton.addEventListener('click', () => {
       startScreen.style.display = 'none';
 
-      videoA.muted = false;
-videoB.muted = false;
+      // Videos are NOT muted — user gesture (the click) unlocks audio.
+      // Do NOT set muted here; the videos were never muted to begin with.
+      videoA.volume = 0;
+      videoB.volume = 0;
 
       playRandomSegment();
     });
 
     // ============================================
-    // OPTIONAL: KEYBOARD CONTROLS
+    // KEYBOARD CONTROLS
     // ============================================
 
     document.addEventListener('keydown', (event) => {
-
-  // SPACE = force dimension jump
-  if (event.code === 'Space') {
-
-    clearTimeout(nextCutTimeout);
-
-    playRandomSegment();
-  }
-
-  // G = glitch
-  if (event.key.toLowerCase() === 'g') {
-
-    triggerGlitch();
-  }
-
-});
-
+      if (event.code === 'Space') {
+        clearTimeout(nextCutTimeout);
+        isCutting = false; // allow forced cut
+        playRandomSegment();
+      }
+      if (event.key.toLowerCase() === 'g') {
+        triggerGlitch();
+      }
+    });
   </script>
 
 </body>
