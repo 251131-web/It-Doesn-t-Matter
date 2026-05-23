@@ -333,19 +333,30 @@ lastClip = selectedClip;
 
 inactiveVideo.currentTime = randomStart;
 
-inactiveVideo.onseeked = () => {
+inactiveVideo.onseeked = async () => {
 
-  inactiveVideo.play().catch(err => {
+  try {
+
+    await inactiveVideo.play();
+
+    // ONLY fade once playback actually starts
+    requestAnimationFrame(() => {
+
+      inactiveVideo.style.opacity = 1;
+      activeVideo.style.opacity = 0;
+
+      inactiveVideo.style.transform = 'scale(1.08)';
+      activeVideo.style.transform = 'scale(1.00)';
+
+    });
+
+  } catch(err) {
+
     console.log("Playback prevented:", err);
-  });
+
+  }
 
 };
-
-    inactiveVideo.style.opacity = 1;
-    activeVideo.style.opacity = 0;
-
-    inactiveVideo.style.transform = 'scale(1.08)';
-    activeVideo.style.transform = 'scale(1.00)';
 
     let fade = 0;
 
@@ -408,17 +419,10 @@ videoB.muted = false;
       // SPACE = force dimension jump
       if (event.code === 'Space') {
 
-  if (!isTransitioning) {
+  clearTimeout(nextCutTimeout);
 
-    isTransitioning = true;
-
-    playRandomSegment();
-
-    setTimeout(() => {
-      isTransitioning = false;
-    }, 800);
-  }
-}
+  playRandomSegment();
+}}
 
       // G = glitch
       if (event.key.toLowerCase() === 'g') {
