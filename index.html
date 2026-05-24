@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>It Doesn't Matter</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -15,13 +15,8 @@
       transition: opacity 0.5s ease;
       filter: contrast(1.05) brightness(0.95);
     }
-
-    /* Portrait phones: contain instead of cover so landscape videos
-       aren't cropped to a tiny centre strip */
     @media (orientation: portrait) and (max-width: 768px) {
-      video {
-        object-fit: contain;
-      }
+      video { object-fit: contain; }
     }
     #grain {
       position: fixed; inset: 0; pointer-events: none;
@@ -101,11 +96,11 @@ const seedLabel   = document.getElementById('seedDisplay');
 const MIN_CLIP      = 5;
 const MAX_CLIP      = 12;
 const BUFFER        = 2;
-const FILM_DURATION = 3 * 60 * 1000; // 3 minutes in ms
+const FILM_DURATION = 3 * 60 * 1000;
 
 // ── ADD YOUR VIDEOS HERE ──────────────────────────────────────────────────────
-const LOGO_CLIP    = 'videos/OW%20FV%20LOGO.mp4';  // plays first, always
-const CREDITS_CLIP = 'videos/CREDITS.mp4';       // plays at the end, always
+const LOGO_CLIP    = 'videos/OW%20FV%20LOGO.mp4';
+const CREDITS_CLIP = 'videos/CREDITS.mp4';
 
 const dimensions = {
   MEMORY: ['videos/memory1.mp4', 'videos/memory2.mp4'],
@@ -115,15 +110,16 @@ const dimensions = {
 };
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
-let currentDim  = 'MEMORY';
-let lastClip    = '';
-let cutCount    = 0;
-let showVid     = vidA;
-let hideVid     = vidB;
-let cutTimer    = null;
-let filmTimer   = null;  // fires after 3 minutes to trigger credits
-let phase       = 'logo'; // 'logo' | 'film' | 'credits' | 'done'
-let pending     = { dim: null, clip: null, promise: null };
+let currentDim = 'MEMORY';
+let lastClip   = '';
+let cutCount   = 0;
+let showVid    = vidA;
+let hideVid    = vidB;
+let cutTimer   = null;
+let filmTimer  = null;
+let phase      = 'logo';
+let pending    = { dim: null, clip: null, promise: null };
+let audioUnlocked = false;
 
 vidA.volume = 0;
 vidB.volume = 0;
@@ -148,9 +144,29 @@ function pickClip(dim) {
   return c;
 }
 
+// ── AUDIO UNLOCK ──────────────────────────────────────────────────────────────
+// Android Chrome requires play() to be called synchronously inside a
+// user gesture to unlock audio for the session. We call play()+pause()
+// on both elements immediately on click — this registers them as
+// "user-activated" so all future play() calls (even async) will have audio.
+async function unlockAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  for (const vid of [vidA, vidB]) {
+    vid.muted = true;
+    vid.src = LOGO_CLIP; // needs a real src or play() is a no-op
+    try {
+      await vid.play();
+      vid.pause();
+    } catch(e) { /* ignore */ }
+    vid.muted = false;
+    vid.volume = 0;
+    vid.src = '';
+    vid.load();
+  }
+}
+
 // ── PRELOAD ───────────────────────────────────────────────────────────────────
-// For logo/credits we play from the start (startFromBeginning = true).
-// For regular clips we seek to a random point.
 function preloadClip(vid, clip, startFromBeginning = false) {
   return new Promise((resolve) => {
     const fullUrl = new URL(clip, location.href).href;
@@ -163,13 +179,10 @@ function preloadClip(vid, clip, startFromBeginning = false) {
 
     function doSeek() {
       if (startFromBeginning) {
-        // Don't seek — just resolve immediately. currentTime is already 0
-        // on a freshly loaded video, and seeking to 0 often skips the
-        // seeked event entirely, hanging the promise forever.
         resolve();
         return;
       }
-      const safe  = Math.max(0, vid.duration - BUFFER - MIN_CLIP);
+      const safe = Math.max(0, vid.duration - BUFFER - MIN_CLIP);
       vid.currentTime = range(0, Math.max(0, safe));
       let done = false;
       const finish = () => { if (!done) { done = true; resolve(); } };
@@ -188,7 +201,7 @@ function preloadClip(vid, clip, startFromBeginning = false) {
 
 // ── SWAP IN A VIDEO ───────────────────────────────────────────────────────────
 async function swapIn() {
-  const incoming = hideVid;  // capture immediately — no await before this
+  const incoming = hideVid;
   const outgoing = showVid;
 
   incoming.volume = 0;
@@ -209,7 +222,7 @@ async function swapIn() {
   return true;
 }
 
-// ── KICK NEXT PRELOAD (random film clip) ──────────────────────────────────────
+// ── KICK NEXT PRELOAD ─────────────────────────────────────────────────────────
 function kickPreload() {
   const dim  = pickDim();
   const clip = pickClip(dim);
@@ -222,23 +235,16 @@ function kickPreload() {
 async function playLogo() {
   phase = 'logo';
   dimLabel.textContent = 'LOGO';
-
   await preloadClip(hideVid, LOGO_CLIP, true);
   const ok = await swapIn();
   if (!ok) return;
-
-  // Wait for the logo clip to finish naturally, then start the film
   showVid.addEventListener('ended', startFilm, { once: true });
 }
 
 // ── START FILM ────────────────────────────────────────────────────────────────
 function startFilm() {
   phase = 'film';
-
-  // Start the 3-minute countdown — when it fires, roll credits
   filmTimer = setTimeout(startCredits, FILM_DURATION);
-
-  // Kick off first random clip
   const dim  = pickDim();
   const clip = pickClip(dim);
   pending.dim     = dim;
@@ -247,7 +253,7 @@ function startFilm() {
   cut();
 }
 
-// ── CUT (random film clips) ───────────────────────────────────────────────────
+// ── CUT ───────────────────────────────────────────────────────────────────────
 async function cut() {
   if (phase !== 'film') return;
   clearTimeout(cutTimer);
@@ -279,29 +285,29 @@ async function cut() {
 // ── START CREDITS ─────────────────────────────────────────────────────────────
 async function startCredits() {
   phase = 'credits';
-  clearTimeout(cutTimer);   // stop any pending cuts
+  clearTimeout(cutTimer);
   dimLabel.textContent = 'CREDITS';
-
   await preloadClip(hideVid, CREDITS_CLIP, true);
   await swapIn();
-
-  // Optionally hide the info panel during credits
   document.getElementById('info').style.display = 'none';
-
-  // Mark done when credits finish
   showVid.addEventListener('ended', () => { phase = 'done'; }, { once: true });
 }
 
 // ── ORIENTATION ───────────────────────────────────────────────────────────────
-// Forces a repaint when the phone rotates so CSS media query kicks in cleanly
 screen.orientation?.addEventListener('change', () => {
   document.body.style.display = 'none';
   requestAnimationFrame(() => { document.body.style.display = ''; });
 });
 
 // ── START ─────────────────────────────────────────────────────────────────────
-startBtn.addEventListener('click', () => {
+startBtn.addEventListener('click', async () => {
   startScreen.style.display = 'none';
+
+  // Unlock audio synchronously on the gesture — critical for Android Chrome.
+  // This play()+pause() cycle registers both video elements as user-activated
+  // before any async work begins, so all future play() calls have audio.
+  await unlockAudio();
+
   playLogo();
 });
 
