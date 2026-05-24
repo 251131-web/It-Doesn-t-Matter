@@ -96,7 +96,7 @@ const BUFFER        = 2;
 const FILM_DURATION = 3 * 60 * 1000; // 3 minutes in ms
 
 // ── ADD YOUR VIDEOS HERE ──────────────────────────────────────────────────────
-const LOGO_CLIP    = 'videos/OW FV LOGO.mp4';   // plays first, always — convert .mov to .mp4 first
+const LOGO_CLIP    = 'videos/OW%20FV%20LOGO.mp4';  // plays first, always
 const CREDITS_CLIP = 'videos/CREDITS.mp4';       // plays at the end, always
 
 const dimensions = {
@@ -155,11 +155,14 @@ function preloadClip(vid, clip, startFromBeginning = false) {
 
     function doSeek() {
       if (startFromBeginning) {
-        vid.currentTime = 0;
-      } else {
-        const safe  = Math.max(0, vid.duration - BUFFER - MIN_CLIP);
-        vid.currentTime = range(0, Math.max(0, safe));
+        // Don't seek — just resolve immediately. currentTime is already 0
+        // on a freshly loaded video, and seeking to 0 often skips the
+        // seeked event entirely, hanging the promise forever.
+        resolve();
+        return;
       }
+      const safe  = Math.max(0, vid.duration - BUFFER - MIN_CLIP);
+      vid.currentTime = range(0, Math.max(0, safe));
       let done = false;
       const finish = () => { if (!done) { done = true; resolve(); } };
       vid.addEventListener('seeked', finish, { once: true });
