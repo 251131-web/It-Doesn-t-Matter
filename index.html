@@ -19,7 +19,6 @@
     @media (orientation: portrait) and (max-width: 768px) {
       video { object-fit: contain; }
     }
-
     #vignette {
       position: fixed; inset: 0; pointer-events: none;
       background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%);
@@ -94,10 +93,10 @@ const LOGO_CLIP    = 'videos/OW-FV-LOGO.mp4';
 const CREDITS_CLIP = 'videos/CREDITS.mp4';
 
 const dimensions = {
-  MEMORY: ['videos/memory1.mp4', 'videos/memory2.mp4', 'videos/memory3.mp4', 'videos/memory4.mp4', 'videos/memory5.mp4', 'videos/memory6.mp4'],
+  MEMORY:    ['videos/memory1.mp4', 'videos/memory2.mp4', 'videos/memory3.mp4', 'videos/memory4.mp4', 'videos/memory5.mp4', 'videos/memory6.mp4'],
   NIGHTMARE: ['videos/nightmare1.mp4', 'videos/nightmare2.mp4', 'videos/nightmare3.mp4'],
-  DREAM:  ['videos/dream1.mp4',  'videos/dream2.mp4', ,  'videos/dream3.mp4',  'videos/dream4.mp4',  'videos/dream5.mp4',  'videos/dream6.mp4',  'videos/dream7.mp4'],
-  VOID:   ['videos/void1.mp4',   'videos/void2.mp4',   'videos/void3.mp4'],
+  DREAM:     ['videos/dream1.mp4', 'videos/dream2.mp4', 'videos/dream3.mp4', 'videos/dream4.mp4', 'videos/dream5.mp4', 'videos/dream6.mp4', 'videos/dream7.mp4'],
+  VOID:      ['videos/void1.mp4', 'videos/void2.mp4', 'videos/void3.mp4'],
 };
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
@@ -111,10 +110,6 @@ let filmTimer  = null;
 let phase      = 'logo';
 let pending    = { dim: null, clip: null, promise: null };
 
-// Both videos start with muted attribute in HTML (required for autoplay).
-// We remove it immediately here — synchronously, before any user interaction —
-// which registers them as "user-unmuted" in Android Chrome's media policy.
-// volume=0 keeps them silent until it's their turn.
 vidA.removeAttribute('muted');
 vidB.removeAttribute('muted');
 vidA.volume = 0;
@@ -126,7 +121,12 @@ if (!seed) { seed = Math.random().toString(36).slice(2,10); localStorage.setItem
 seedLabel.textContent = seed;
 
 // ── UTILS ─────────────────────────────────────────────────────────────────────
-const pick  = arr => arr[Math.floor(Math.random() * arr.length)];
+const pick  = arr => {
+  // Filter out any undefined/null slots before picking — guards against
+  // accidental double-commas or bad entries in the dimensions arrays
+  const valid = arr.filter(x => x);
+  return valid[Math.floor(Math.random() * valid.length)];
+};
 const range = (a, b) => Math.random() * (b - a) + a;
 
 function pickDim() {
@@ -134,7 +134,7 @@ function pickDim() {
   return pick(Object.keys(dimensions));
 }
 function pickClip(dim) {
-  const clips = dimensions[dim];
+  const clips = dimensions[dim].filter(x => x); // strip any undefined slots
   let c = pick(clips);
   while (c === lastClip && clips.length > 1) c = pick(clips);
   return c;
@@ -143,6 +143,7 @@ function pickClip(dim) {
 // ── PRELOAD ───────────────────────────────────────────────────────────────────
 function preloadClip(vid, clip, startFromBeginning = false) {
   return new Promise((resolve) => {
+    if (!clip) { resolve(); return; } // safety: never load undefined
     const fullUrl = new URL(clip, location.href).href;
     if (vid.src !== fullUrl) {
       vid.onloadedmetadata = null;
@@ -212,14 +213,11 @@ async function playLogo() {
   await preloadClip(hideVid, LOGO_CLIP, true);
   const ok = await swapIn();
   if (!ok) {
-    // Logo failed to play — skip straight to the film so nothing freezes
     console.warn('Logo could not play, skipping to film');
     startFilm();
     return;
   }
   showVid.addEventListener('ended', startFilm, { once: true });
-  // Safety net: if 'ended' never fires (e.g. very short or broken file),
-  // fall through to the film after 30 seconds maximum
   setTimeout(() => { if (phase === 'logo') startFilm(); }, 30000);
 }
 
