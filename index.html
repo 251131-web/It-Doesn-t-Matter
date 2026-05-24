@@ -61,8 +61,8 @@
 </div>
 
 <div id="videoContainer">
-  <video id="vidA" playsinline muted preload="auto"></video>
-  <video id="vidB" playsinline muted preload="auto"></video>
+  <video id="vidA" playsinline preload="auto"></video>
+  <video id="vidB" playsinline preload="auto"></video>
 </div>
 
 <div id="vignette"></div>
@@ -111,12 +111,7 @@ let filmTimer  = null;
 let phase      = 'logo';
 let pending    = { dim: null, clip: null, promise: null };
 
-// Both videos start with muted attribute in HTML (required for autoplay).
-// We remove it immediately here — synchronously, before any user interaction —
-// which registers them as "user-unmuted" in Android Chrome's media policy.
-// volume=0 keeps them silent until it's their turn.
-vidA.removeAttribute('muted');
-vidB.removeAttribute('muted');
+// Both silent until their turn — no muted attribute, just volume 0
 vidA.volume = 0;
 vidB.volume = 0;
 
