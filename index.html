@@ -60,11 +60,9 @@
 </div>
 
 <div id="videoContainer">
-  <!-- Videos are permanently muted so autoplay is never blocked on any
-       platform. Web Audio API gain nodes carry the actual sound to speakers.
-       Requires the _headers file in the repo root for CORS. -->
-  <video id="vidA" playsinline muted preload="none" crossorigin="anonymous"></video>
-  <video id="vidB" playsinline muted preload="none" crossorigin="anonymous"></video>
+  <!-- No muted attribute. volume=0 until active, then volume=1. -->
+  <video id="vidA" playsinline preload="none"></video>
+  <video id="vidB" playsinline preload="none"></video>
 </div>
 
 <div id="vignette"></div>
@@ -112,7 +110,9 @@ let cutTimer   = null;
 let filmTimer  = null;
 let phase      = 'logo';
 let pending    = { dim: null, clip: null, promise: null };
-let audioCtx   = null;
+
+vidA.volume = 0;
+vidB.volume = 0;
 
 // ── SEED ──────────────────────────────────────────────────────────────────────
 let seed = localStorage.getItem('realitySeed');
@@ -136,31 +136,6 @@ function pickClip(dim) {
   while (c === lastClip && clips.length > 1) c = pick(clips);
   return c;
 }
-
-// ── AUDIO ─────────────────────────────────────────────────────────────────────
-// Called synchronously inside the click handler — the only moment
-// AudioContext creation is guaranteed to work on all platforms.
-// Videos stay muted at element level; gain nodes carry the sound.
-// CORS header (_headers file in repo root) makes this work on GitHub Pages.
-function initAudio() {
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  [vidA, vidB].forEach(vid => {
-    const src  = audioCtx.createMediaElementSource(vid);
-    const gain = audioCtx.createGain();
-    gain.gain.value = 0;
-    src.connect(gain).connect(audioCtx.destination);
-    vid._gain = gain;
-  });
-}
-
-async function ensureAudioRunning() {
-  if (audioCtx && audioCtx.state === 'suspended') {
-    await audioCtx.resume();
-  }
-}
-
-function audioOn(vid)  { if (vid._gain) vid._gain.gain.setValueAtTime(1, audioCtx.currentTime); }
-function audioOff(vid) { if (vid._gain) vid._gain.gain.setValueAtTime(0, audioCtx.currentTime); }
 
 // ── PRELOAD ───────────────────────────────────────────────────────────────────
 function preloadClip(vid, clip, startFromBeginning = false) {
@@ -197,8 +172,7 @@ async function swapIn() {
   const incoming = hideVid;
   const outgoing = showVid;
 
-  await ensureAudioRunning();
-
+  incoming.volume = 0;
   try {
     await incoming.play();
   } catch(e) {
@@ -208,8 +182,8 @@ async function swapIn() {
 
   incoming.style.opacity = '1';
   outgoing.style.opacity = '0';
-  audioOn(incoming);
-  audioOff(outgoing);
+  incoming.volume = 1;
+  outgoing.volume = 0;
   setTimeout(() => outgoing.pause(), 700);
 
   [showVid, hideVid] = [incoming, outgoing];
@@ -287,7 +261,6 @@ screen.orientation?.addEventListener('change', () => {
 // ── START ─────────────────────────────────────────────────────────────────────
 startBtn.addEventListener('click', () => {
   startScreen.style.display = 'none';
-  initAudio(); // MUST be synchronous in the click handler
   playLogo();
 });
 
