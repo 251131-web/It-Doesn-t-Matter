@@ -114,7 +114,8 @@ let pending    = { dim: null, clip: null, promise: null };
 vidA.volume = 0;
 vidB.volume = 0;
 
-// ── SEED ──────────────────────────────────────────────────────────────────────
+// ── PLATFORM ──────────────────────────────────────────────────────────────────
+const isAndroid = /android/i.test(navigator.userAgent);
 let seed = localStorage.getItem('realitySeed');
 if (!seed) { seed = Math.random().toString(36).slice(2,10); localStorage.setItem('realitySeed', seed); }
 seedLabel.textContent = seed;
@@ -172,12 +173,20 @@ async function swapIn() {
   const incoming = hideVid;
   const outgoing = showVid;
 
+  // On Android, play() with audio fails outside a gesture context.
+  // Start muted, play, then unmute — Android allows this sequence.
   incoming.volume = 0;
+  if (isAndroid) incoming.muted = true;
+
   try {
     await incoming.play();
   } catch(e) {
     console.warn('play() blocked:', e);
     return false;
+  }
+
+  if (isAndroid) {
+    incoming.muted = false;
   }
 
   incoming.style.opacity = '1';
