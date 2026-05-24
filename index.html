@@ -119,8 +119,8 @@ let cutTimer   = null;
 let filmTimer  = null;
 let phase      = 'logo';
 let pending    = { dim: null, clip: null, promise: null };
-let audioUnlocked = false;
 
+// Both silent until their turn — no muted attribute, just volume 0
 vidA.volume = 0;
 vidB.volume = 0;
 
@@ -142,28 +142,6 @@ function pickClip(dim) {
   let c = pick(clips);
   while (c === lastClip && clips.length > 1) c = pick(clips);
   return c;
-}
-
-// ── AUDIO UNLOCK ──────────────────────────────────────────────────────────────
-// Android Chrome requires play() to be called synchronously inside a
-// user gesture to unlock audio for the session. We call play()+pause()
-// on both elements immediately on click — this registers them as
-// "user-activated" so all future play() calls (even async) will have audio.
-async function unlockAudio() {
-  if (audioUnlocked) return;
-  audioUnlocked = true;
-  for (const vid of [vidA, vidB]) {
-    vid.muted = true;
-    vid.src = LOGO_CLIP; // needs a real src or play() is a no-op
-    try {
-      await vid.play();
-      vid.pause();
-    } catch(e) { /* ignore */ }
-    vid.muted = false;
-    vid.volume = 0;
-    vid.src = '';
-    vid.load();
-  }
 }
 
 // ── PRELOAD ───────────────────────────────────────────────────────────────────
@@ -300,14 +278,8 @@ screen.orientation?.addEventListener('change', () => {
 });
 
 // ── START ─────────────────────────────────────────────────────────────────────
-startBtn.addEventListener('click', async () => {
+startBtn.addEventListener('click', () => {
   startScreen.style.display = 'none';
-
-  // Unlock audio synchronously on the gesture — critical for Android Chrome.
-  // This play()+pause() cycle registers both video elements as user-activated
-  // before any async work begins, so all future play() calls have audio.
-  await unlockAudio();
-
   playLogo();
 });
 
