@@ -66,8 +66,6 @@
 </div>
 
 <div id="videoContainer">
-  <!-- No muted attribute. Both start at volume=0 in JS.
-       The active video gets volume=1, the idle one stays at volume=0. -->
   <video id="vidA" playsinline preload="auto"></video>
   <video id="vidB" playsinline preload="auto"></video>
 </div>
@@ -92,11 +90,15 @@ const cutLabel    = document.getElementById('cutCounter');
 const seedLabel   = document.getElementById('seedDisplay');
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
-const MIN_CLIP = 5;
-const MAX_CLIP = 12;
-const BUFFER   = 2;
+const MIN_CLIP      = 5;
+const MAX_CLIP      = 12;
+const BUFFER        = 2;
+const FILM_DURATION = 3 * 60 * 1000; // 3 minutes in ms
 
 // ── ADD YOUR VIDEOS HERE ──────────────────────────────────────────────────────
+const LOGO_CLIP    = 'videos/OW FV LOGO.mov';   // plays first, always
+const CREDITS_CLIP = 'videos/CREDITS.mp4';       // plays at the end, always
+
 const dimensions = {
   MEMORY: ['videos/memory1.mp4', 'videos/memory2.mp4'],
   HORROR: ['videos/horror1.mp4', 'videos/horror2.mp4'],
@@ -105,15 +107,16 @@ const dimensions = {
 };
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
-let currentDim = 'MEMORY';
-let lastClip   = '';
-let cutCount   = 0;
-let showVid    = vidA;
-let hideVid    = vidB;
-let cutTimer   = null;
-let pending    = { dim: null, clip: null, promise: null };
+let currentDim  = 'MEMORY';
+let lastClip    = '';
+let cutCount    = 0;
+let showVid     = vidA;
+let hideVid     = vidB;
+let cutTimer    = null;
+let filmTimer   = null;  // fires after 3 minutes to trigger credits
+let phase       = 'logo'; // 'logo' | 'film' | 'credits' | 'done'
+let pending     = { dim: null, clip: null, promise: null };
 
-// Both videos silent until it's their turn
 vidA.volume = 0;
 vidB.volume = 0;
 
@@ -138,7 +141,9 @@ function pickClip(dim) {
 }
 
 // ── PRELOAD ───────────────────────────────────────────────────────────────────
-function preloadClip(vid, clip) {
+// For logo/credits we play from the start (startFromBeginning = true).
+// For regular clips we seek to a random point.
+function preloadClip(vid, clip, startFromBeginning = false) {
   return new Promise((resolve) => {
     const fullUrl = new URL(clip, location.href).href;
     if (vid.src !== fullUrl) {
@@ -149,9 +154,12 @@ function preloadClip(vid, clip) {
     }
 
     function doSeek() {
-      const safe  = Math.max(0, vid.duration - BUFFER - MIN_CLIP);
-      const start = range(0, Math.max(0, safe));
-      vid.currentTime = start;
+      if (startFromBeginning) {
+        vid.currentTime = 0;
+      } else {
+        const safe  = Math.max(0, vid.duration - BUFFER - MIN_CLIP);
+        vid.currentTime = range(0, Math.max(0, safe));
+      }
       let done = false;
       const finish = () => { if (!done) { done = true; resolve(); } };
       vid.addEventListener('seeked', finish, { once: true });
@@ -167,7 +175,31 @@ function preloadClip(vid, clip) {
   });
 }
 
-// ── KICK NEXT PRELOAD ─────────────────────────────────────────────────────────
+// ── SWAP IN A VIDEO ───────────────────────────────────────────────────────────
+// Core swap: plays hideVid, crossfades it in, silences + pauses showVid.
+async function swapIn() {
+  hideVid.volume = 0;
+  try {
+    await hideVid.play();
+  } catch(e) {
+    console.warn('play() blocked:', e);
+    return false;
+  }
+
+  const incoming = hideVid;
+  const outgoing = showVid;
+
+  incoming.style.opacity = '1';
+  outgoing.style.opacity = '0';
+  incoming.volume = 1;
+  outgoing.volume = 0;
+  setTimeout(() => outgoing.pause(), 700);
+
+  [showVid, hideVid] = [incoming, outgoing];
+  return true;
+}
+
+// ── KICK NEXT PRELOAD (random film clip) ──────────────────────────────────────
 function kickPreload() {
   const dim  = pickDim();
   const clip = pickClip(dim);
@@ -176,68 +208,93 @@ function kickPreload() {
   pending.promise = preloadClip(hideVid, clip);
 }
 
-// ── CUT ───────────────────────────────────────────────────────────────────────
-async function cut() {
-  clearTimeout(cutTimer);
+// ── PLAY LOGO ─────────────────────────────────────────────────────────────────
+async function playLogo() {
+  phase = 'logo';
+  dimLabel.textContent = 'LOGO';
 
-  await pending.promise;
+  await preloadClip(hideVid, LOGO_CLIP, true);
+  const ok = await swapIn();
+  if (!ok) return;
 
-  // Keep incoming silent until it's fully playing
-  hideVid.volume = 0;
-
-  try {
-    await hideVid.play();
-  } catch(e) {
-    console.warn('play() blocked:', e);
-    cutTimer = setTimeout(cut, 500);
-    return;
-  }
-
-  const incoming = hideVid;
-  const outgoing = showVid;
-
-  // Visual swap
-  incoming.style.opacity = '1';
-  outgoing.style.opacity = '0';
-
-  // Audio swap — incoming on, outgoing off
-  incoming.volume = 1;
-  outgoing.volume = 0;
-  setTimeout(() => outgoing.pause(), 700);
-
-  currentDim = pending.dim || currentDim;
-  lastClip   = pending.clip || lastClip;
-  dimLabel.textContent = currentDim;
-
-  [showVid, hideVid] = [incoming, outgoing];
-
-  cutCount++;
-  cutLabel.textContent = cutCount;
-
-  if (Math.random() > 0.92) {
-    incoming.classList.add('glitch');
-    setTimeout(() => incoming.classList.remove('glitch'), 180);
-  }
-
-  kickPreload();
-  cutTimer = setTimeout(cut, range(MIN_CLIP, MAX_CLIP) * 1000);
+  // Wait for the logo clip to finish naturally, then start the film
+  showVid.addEventListener('ended', startFilm, { once: true });
 }
 
-// ── START ─────────────────────────────────────────────────────────────────────
-startBtn.addEventListener('click', () => {
-  startScreen.style.display = 'none';
+// ── START FILM ────────────────────────────────────────────────────────────────
+function startFilm() {
+  phase = 'film';
 
+  // Start the 3-minute countdown — when it fires, roll credits
+  filmTimer = setTimeout(startCredits, FILM_DURATION);
+
+  // Kick off first random clip
   const dim  = pickDim();
   const clip = pickClip(dim);
   pending.dim     = dim;
   pending.clip    = clip;
   pending.promise = preloadClip(hideVid, clip);
   cut();
+}
+
+// ── CUT (random film clips) ───────────────────────────────────────────────────
+async function cut() {
+  if (phase !== 'film') return;
+  clearTimeout(cutTimer);
+
+  await pending.promise;
+
+  const ok = await swapIn();
+  if (!ok) {
+    cutTimer = setTimeout(cut, 500);
+    return;
+  }
+
+  currentDim = pending.dim || currentDim;
+  lastClip   = pending.clip || lastClip;
+  dimLabel.textContent = currentDim;
+
+  cutCount++;
+  cutLabel.textContent = cutCount;
+
+  if (Math.random() > 0.92) {
+    showVid.classList.add('glitch');
+    setTimeout(() => showVid.classList.remove('glitch'), 180);
+  }
+
+  kickPreload();
+  cutTimer = setTimeout(cut, range(MIN_CLIP, MAX_CLIP) * 1000);
+}
+
+// ── START CREDITS ─────────────────────────────────────────────────────────────
+async function startCredits() {
+  phase = 'credits';
+  clearTimeout(cutTimer);   // stop any pending cuts
+  dimLabel.textContent = 'CREDITS';
+
+  await preloadClip(hideVid, CREDITS_CLIP, true);
+  await swapIn();
+
+  // Optionally hide the info panel during credits
+  document.getElementById('info').style.display = 'none';
+
+  // Mark done when credits finish
+  showVid.addEventListener('ended', () => { phase = 'done'; }, { once: true });
+}
+
+// ── START ─────────────────────────────────────────────────────────────────────
+startBtn.addEventListener('click', () => {
+  startScreen.style.display = 'none';
+  playLogo();
 });
 
 // ── KEYBOARD ──────────────────────────────────────────────────────────────────
 document.addEventListener('keydown', e => {
-  if (e.code === 'Space') { clearTimeout(cutTimer); kickPreload(); cut(); }
+  if (e.code === 'Space' && phase === 'film') {
+    clearTimeout(cutTimer);
+    kickPreload();
+    cut();
+  }
   if (e.key.toLowerCase() === 'g' && showVid) {
     showVid.classList.add('glitch');
     setTimeout(() => showVid.classList.remove('glitch'), 180);
