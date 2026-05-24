@@ -60,8 +60,11 @@
 </div>
 
 <div id="videoContainer">
-  <video id="vidA" playsinline muted preload="auto"></video>
-  <video id="vidB" playsinline muted preload="auto"></video>
+  <!-- Videos are permanently muted so autoplay is never blocked on any
+       platform. Web Audio API gain nodes carry the actual sound to speakers.
+       Requires the _headers file in the repo root for CORS. -->
+  <video id="vidA" playsinline muted preload="auto" crossorigin="anonymous"></video>
+  <video id="vidB" playsinline muted preload="auto" crossorigin="anonymous"></video>
 </div>
 
 <div id="vignette"></div>
@@ -109,11 +112,7 @@ let cutTimer   = null;
 let filmTimer  = null;
 let phase      = 'logo';
 let pending    = { dim: null, clip: null, promise: null };
-
-vidA.removeAttribute('muted');
-vidB.removeAttribute('muted');
-vidA.volume = 0;
-vidB.volume = 0;
+let audioCtx   = null;
 
 // ── SEED ──────────────────────────────────────────────────────────────────────
 let seed = localStorage.getItem('realitySeed');
@@ -122,8 +121,6 @@ seedLabel.textContent = seed;
 
 // ── UTILS ─────────────────────────────────────────────────────────────────────
 const pick  = arr => {
-  // Filter out any undefined/null slots before picking — guards against
-  // accidental double-commas or bad entries in the dimensions arrays
   const valid = arr.filter(x => x);
   return valid[Math.floor(Math.random() * valid.length)];
 };
@@ -134,16 +131,41 @@ function pickDim() {
   return pick(Object.keys(dimensions));
 }
 function pickClip(dim) {
-  const clips = dimensions[dim].filter(x => x); // strip any undefined slots
+  const clips = dimensions[dim].filter(x => x);
   let c = pick(clips);
   while (c === lastClip && clips.length > 1) c = pick(clips);
   return c;
 }
 
+// ── AUDIO ─────────────────────────────────────────────────────────────────────
+// Called synchronously inside the click handler — the only moment
+// AudioContext creation is guaranteed to work on all platforms.
+// Videos stay muted at element level; gain nodes carry the sound.
+// CORS header (_headers file in repo root) makes this work on GitHub Pages.
+function initAudio() {
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  [vidA, vidB].forEach(vid => {
+    const src  = audioCtx.createMediaElementSource(vid);
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0;
+    src.connect(gain).connect(audioCtx.destination);
+    vid._gain = gain;
+  });
+}
+
+async function ensureAudioRunning() {
+  if (audioCtx && audioCtx.state === 'suspended') {
+    await audioCtx.resume();
+  }
+}
+
+function audioOn(vid)  { if (vid._gain) vid._gain.gain.setValueAtTime(1, audioCtx.currentTime); }
+function audioOff(vid) { if (vid._gain) vid._gain.gain.setValueAtTime(0, audioCtx.currentTime); }
+
 // ── PRELOAD ───────────────────────────────────────────────────────────────────
 function preloadClip(vid, clip, startFromBeginning = false) {
   return new Promise((resolve) => {
-    if (!clip) { resolve(); return; } // safety: never load undefined
+    if (!clip) { resolve(); return; }
     const fullUrl = new URL(clip, location.href).href;
     if (vid.src !== fullUrl) {
       vid.onloadedmetadata = null;
@@ -153,10 +175,7 @@ function preloadClip(vid, clip, startFromBeginning = false) {
     }
 
     function doSeek() {
-      if (startFromBeginning) {
-        resolve();
-        return;
-      }
+      if (startFromBeginning) { resolve(); return; }
       const safe = Math.max(0, vid.duration - BUFFER - MIN_CLIP);
       vid.currentTime = range(0, Math.max(0, safe));
       let done = false;
@@ -165,9 +184,8 @@ function preloadClip(vid, clip, startFromBeginning = false) {
       setTimeout(finish, 1000);
     }
 
-    if (vid.readyState >= 1) {
-      doSeek();
-    } else {
+    if (vid.readyState >= 1) { doSeek(); }
+    else {
       vid.onloadedmetadata = doSeek;
       vid.onerror = () => resolve();
     }
@@ -179,7 +197,8 @@ async function swapIn() {
   const incoming = hideVid;
   const outgoing = showVid;
 
-  incoming.volume = 0;
+  await ensureAudioRunning();
+
   try {
     await incoming.play();
   } catch(e) {
@@ -189,8 +208,8 @@ async function swapIn() {
 
   incoming.style.opacity = '1';
   outgoing.style.opacity = '0';
-  incoming.volume = 1;
-  outgoing.volume = 0;
+  audioOn(incoming);
+  audioOff(outgoing);
   setTimeout(() => outgoing.pause(), 700);
 
   [showVid, hideVid] = [incoming, outgoing];
@@ -212,11 +231,7 @@ async function playLogo() {
   dimLabel.textContent = 'LOGO';
   await preloadClip(hideVid, LOGO_CLIP, true);
   const ok = await swapIn();
-  if (!ok) {
-    console.warn('Logo could not play, skipping to film');
-    startFilm();
-    return;
-  }
+  if (!ok) { console.warn('Logo skipped'); startFilm(); return; }
   showVid.addEventListener('ended', startFilm, { once: true });
   setTimeout(() => { if (phase === 'logo') startFilm(); }, 30000);
 }
@@ -227,8 +242,7 @@ function startFilm() {
   filmTimer = setTimeout(startCredits, FILM_DURATION);
   const dim  = pickDim();
   const clip = pickClip(dim);
-  pending.dim     = dim;
-  pending.clip    = clip;
+  pending.dim = dim; pending.clip = clip;
   pending.promise = preloadClip(hideVid, clip);
   cut();
 }
@@ -237,27 +251,18 @@ function startFilm() {
 async function cut() {
   if (phase !== 'film') return;
   clearTimeout(cutTimer);
-
   await pending.promise;
-
   const ok = await swapIn();
-  if (!ok) {
-    cutTimer = setTimeout(cut, 500);
-    return;
-  }
-
+  if (!ok) { cutTimer = setTimeout(cut, 500); return; }
   currentDim = pending.dim || currentDim;
   lastClip   = pending.clip || lastClip;
   dimLabel.textContent = currentDim;
-
   cutCount++;
   cutLabel.textContent = cutCount;
-
   if (Math.random() > 0.92) {
     showVid.classList.add('glitch');
     setTimeout(() => showVid.classList.remove('glitch'), 180);
   }
-
   kickPreload();
   cutTimer = setTimeout(cut, range(MIN_CLIP, MAX_CLIP) * 1000);
 }
@@ -282,16 +287,13 @@ screen.orientation?.addEventListener('change', () => {
 // ── START ─────────────────────────────────────────────────────────────────────
 startBtn.addEventListener('click', () => {
   startScreen.style.display = 'none';
+  initAudio(); // MUST be synchronous in the click handler
   playLogo();
 });
 
 // ── KEYBOARD ──────────────────────────────────────────────────────────────────
 document.addEventListener('keydown', e => {
-  if (e.code === 'Space' && phase === 'film') {
-    clearTimeout(cutTimer);
-    kickPreload();
-    cut();
-  }
+  if (e.code === 'Space' && phase === 'film') { clearTimeout(cutTimer); kickPreload(); cut(); }
   if (e.key.toLowerCase() === 'g' && showVid) {
     showVid.classList.add('glitch');
     setTimeout(() => showVid.classList.remove('glitch'), 180);
