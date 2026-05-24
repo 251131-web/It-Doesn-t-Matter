@@ -130,7 +130,7 @@ const pick  = arr => arr[Math.floor(Math.random() * arr.length)];
 const range = (a, b) => Math.random() * (b - a) + a;
 
 function pickDim() {
-  if (Math.random() < 0.35) return currentDim;
+  if (Math.random() < 0.20) return currentDim;
   return pick(Object.keys(dimensions));
 }
 function pickClip(dim) {
