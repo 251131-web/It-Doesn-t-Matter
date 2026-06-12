@@ -60,7 +60,6 @@
 </div>
 
 <div id="videoContainer">
-  <!-- No muted attribute. volume=0 until active, then volume=1. -->
   <video id="vidA" playsinline preload="none"></video>
   <video id="vidB" playsinline preload="none"></video>
 </div>
@@ -69,8 +68,6 @@
 
 <div id="info">
   <div><strong>Dimension:</strong> <span id="dimensionName">—</span></div>
-  <div><strong>Cuts:</strong> <span id="cutCounter">0</span></div>
-  <div><strong>Reality Seed:</strong> <span id="seedDisplay"></span></div>
 </div>
 
 <script>
@@ -80,13 +77,10 @@ const vidB        = document.getElementById('vidB');
 const startBtn    = document.getElementById('startButton');
 const startScreen = document.getElementById('startScreen');
 const dimLabel    = document.getElementById('dimensionName');
-const cutLabel    = document.getElementById('cutCounter');
-const seedLabel   = document.getElementById('seedDisplay');
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 const MIN_CLIP      = 5;
 const MAX_CLIP      = 12;
-const BUFFER        = 2;
 const FILM_DURATION = 3 * 60 * 1000;
 
 // ── ADD YOUR VIDEOS HERE ──────────────────────────────────────────────────────
@@ -116,9 +110,6 @@ vidB.volume = 0;
 
 // ── PLATFORM ──────────────────────────────────────────────────────────────────
 const isAndroid = /android/i.test(navigator.userAgent);
-let seed = localStorage.getItem('realitySeed');
-if (!seed) { seed = Math.random().toString(36).slice(2,10); localStorage.setItem('realitySeed', seed); }
-seedLabel.textContent = seed;
 
 // ── UTILS ─────────────────────────────────────────────────────────────────────
 const pick  = arr => {
@@ -150,13 +141,12 @@ function preloadClip(vid, clip) {
       vid.load();
     }
 
-    // Always play from the beginning — no random seek
     function doSeek() {
       vid.currentTime = 0;
       let done = false;
       const finish = () => { if (!done) { done = true; resolve(); } };
       vid.addEventListener('seeked', finish, { once: true });
-      setTimeout(finish, 1000); // fallback if seeked never fires at 0
+      setTimeout(finish, 1000);
     }
 
     if (vid.readyState >= 1) { doSeek(); }
@@ -172,8 +162,6 @@ async function swapIn() {
   const incoming = hideVid;
   const outgoing = showVid;
 
-  // On Android, play() with audio fails outside a gesture context.
-  // Start muted, play, then unmute — Android allows this sequence.
   incoming.volume = 0;
   if (isAndroid) incoming.muted = true;
 
@@ -240,7 +228,6 @@ async function cut() {
   lastClip   = pending.clip || lastClip;
   dimLabel.textContent = currentDim;
   cutCount++;
-  cutLabel.textContent = cutCount;
   if (Math.random() > 0.92) {
     showVid.classList.add('glitch');
     setTimeout(() => showVid.classList.remove('glitch'), 180);
