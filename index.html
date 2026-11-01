@@ -11,13 +11,9 @@
     #videoContainer { position: fixed; inset: 0; background: black; }
     video {
       position: absolute; inset: 0;
-      width: 100%; height: 100%;
-      object-fit: contain; opacity: 0;
-      transition: opacity 0.5s ease;
+      width: 100%; height: 100%; object-fit: contain;
+      opacity: 0; transition: opacity 0.5s ease;
       filter: contrast(1.05) brightness(0.95);
-    }
-    @media (orientation: portrait) and (max-width: 768px) {
-      video { object-fit: contain; }
     }
     #vignette {
       position: fixed; inset: 0; pointer-events: none;
@@ -35,58 +31,53 @@
       flex-direction: column; background: black;
       z-index: 999; text-align: center; padding: 24px;
     }
+    #startMessage { margin-top: 12px; max-width: 600px; opacity: 0.8; line-height: 1.5; }
     #startButton {
       margin-top: 20px; padding: 14px 28px; font-size: 18px;
       border: none; border-radius: 999px; background: white;
       color: black; cursor: pointer; transition: transform 0.2s ease;
     }
     #startButton:hover { transform: scale(1.05); }
+    #startButton:disabled { opacity: 0.6; cursor: progress; }
     .glitch { animation: glitch 0.18s linear; }
     @keyframes glitch {
-      0%  { transform: translate(0,0); }     25% { transform: translate(-5px,2px); }
-      50% { transform: translate(5px,-2px); } 75% { transform: translate(-2px,-4px); }
-      100%{ transform: translate(0,0); }
+      0%   { transform: translate(0,0); }
+      25%  { transform: translate(-5px,2px); }
+      50%  { transform: translate(5px,-2px); }
+      75%  { transform: translate(-2px,-4px); }
+      100% { transform: translate(0,0); }
     }
   </style>
 </head>
 <body>
+  <div id="startScreen">
+    <h1>It Doesn't Matter</h1>
+    <p id="startMessage">Every viewing is different. Every life is different.<br>What happened doesn't matter anymore.</p>
+    <button id="startButton">ENTER</button>
+  </div>
 
-<div id="startScreen">
-  <h1>It Doesn't Matter</h1>
-  <p style="margin-top:12px; max-width:600px; opacity:0.8;">
-    Every viewing is different. Every life is different<br>What happened doesn't matter anymore.
-  </p>
-  <button id="startButton">ENTER</button>
-</div>
-
-<div id="videoContainer">
-  <video id="vidA" playsinline preload="none"></video>
-  <video id="vidB" playsinline preload="none"></video>
-</div>
-
-<div id="vignette"></div>
-
-<div id="info">
-  <div><strong>Dimension:</strong> <span id="dimensionName">—</span></div>
-</div>
+  <div id="videoContainer">
+    <video id="vidA" playsinline webkit-playsinline preload="auto"></video>
+    <video id="vidB" playsinline webkit-playsinline preload="auto"></video>
+  </div>
+  <div id="vignette"></div>
+  <div id="info"><strong>Dimension:</strong> <span id="dimensionName">—</span></div>
 
 <script>
-// ── ELEMENTS ──────────────────────────────────────────────────────────────────
-const vidA        = document.getElementById('vidA');
-const vidB        = document.getElementById('vidB');
-const startBtn    = document.getElementById('startButton');
-const startScreen = document.getElementById('startScreen');
-const dimLabel    = document.getElementById('dimensionName');
+'use strict';
 
-// ── CONFIG ────────────────────────────────────────────────────────────────────
-const MIN_CLIP      = 5;
-const MAX_CLIP      = 12;
+// ── CONFIGURATION ─────────────────────────────────────────────────────────────
+// All MP4 files live alongside this HTML on Netlify, inside /videos/.
+// No CDN hostname, paid storage, API keys, or custom domain required.
+const VIDEO_BASE = new URL('./', document.baseURI).href;
+const MIN_CLIP = 5;                 // seconds between the start of cuts
+const MAX_CLIP = 12;
 const FILM_DURATION = 3 * 60 * 1000;
+const MIN_BUFFER_SECONDS = 4;      // how many seconds of the NEXT clip to buffer
+const LOAD_TIMEOUT_MS = 25000;     // abandon unresponsive files, try another
 
-// ── ADD YOUR VIDEOS HERE ──────────────────────────────────────────────────────
-const LOGO_CLIP    = 'videos/OW-FV-LOGO.mp4';
+const LOGO_CLIP = 'videos/OW-FV-LOGO.mp4';
 const CREDITS_CLIP = 'videos/CREDITS.mp4';
-
 const dimensions = {
   MEMORY:    ['videos/memory1.mp4', 'videos/memory2.mp4', 'videos/memory3.mp4', 'videos/memory4.mp4', 'videos/memory5.mp4', 'videos/memory6.mp4'],
   NIGHTMARE: ['videos/nightmare1.mp4', 'videos/nightmare2.mp4', 'videos/nightmare3.mp4'],
@@ -94,180 +85,351 @@ const dimensions = {
   VOID:      ['videos/void1.mp4', 'videos/void2.mp4', 'videos/void3.mp4'],
 };
 
-// ── STATE ─────────────────────────────────────────────────────────────────────
+// ── ELEMENTS AND STATE ────────────────────────────────────────────────────────
+const vidA = document.getElementById('vidA');
+const vidB = document.getElementById('vidB');
+const startScreen = document.getElementById('startScreen');
+const startBtn = document.getElementById('startButton');
+const startMessage = document.getElementById('startMessage');
+const dimLabel = document.getElementById('dimensionName');
+let active = vidA;
+let standby = vidB;
 let currentDim = 'MEMORY';
-let lastClip   = '';
-let cutCount   = 0;
-let showVid    = vidA;
-let hideVid    = vidB;
-let cutTimer   = null;
-let filmTimer  = null;
-let phase      = 'logo';
-let pending    = { dim: null, clip: null, promise: null };
+let lastClip = '';
+let phase = 'idle';
+let pending = null;
+let preloadController = null;
+let cutting = false;
+let cutTimer = null;
+let filmTimer = null;
+let logoTimer = null;
+let preloadKickTimer = null;
+let filmHasStarted = false;
 
-vidA.volume = 0;
-vidB.volume = 0;
+[vidA, vidB].forEach(vid => {
+  vid.preload = 'auto';
+  vid.playsInline = true;
+  vid.volume = 0;
+  vid.addEventListener('error', () => {
+    console.warn('Video error:', vid.currentSrc, vid.error?.code);
+  });
+});
 
-// ── PLATFORM ──────────────────────────────────────────────────────────────────
-const isAndroid = /android/i.test(navigator.userAgent);
-
-// ── UTILS ─────────────────────────────────────────────────────────────────────
-const pick  = arr => {
-  const valid = arr.filter(x => x);
-  return valid[Math.floor(Math.random() * valid.length)];
-};
-const range = (a, b) => Math.random() * (b - a) + a;
-
-function pickDim() {
-  if (Math.random() < 0.20) return currentDim;
-  return pick(Object.keys(dimensions));
-}
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+const range = (a, b) => a + Math.random() * (b - a);
+function pickDim() { return Math.random() < 0.2 ? currentDim : pick(Object.keys(dimensions)); }
 function pickClip(dim) {
-  const clips = dimensions[dim].filter(x => x);
-  let c = pick(clips);
-  while (c === lastClip && clips.length > 1) c = pick(clips);
-  return c;
+  const options = dimensions[dim].filter(c => c !== lastClip);
+  return pick(options.length ? options : dimensions[dim]);
+}
+function videoURL(path) { return new URL(path, VIDEO_BASE).href; }
+
+// ── BUFFER-AWARE PRELOADING ───────────────────────────────────────────────────
+function secondsBufferedAhead(video) {
+  const time = video.currentTime || 0;
+  const ranges = video.buffered;
+  for (let i = 0; i < ranges.length; i++) {
+    if (ranges.start(i) <= time + 0.1 && ranges.end(i) > time) {
+      return ranges.end(i) - time;
+    }
+  }
+  return 0;
 }
 
-// ── PRELOAD ───────────────────────────────────────────────────────────────────
-function preloadClip(vid, clip) {
-  return new Promise((resolve) => {
-    if (!clip) { resolve(); return; }
-    const fullUrl = new URL(clip, location.href).href;
-    if (vid.src !== fullUrl) {
-      vid.onloadedmetadata = null;
-      vid.onerror = null;
-      vid.src = clip;
-      vid.load();
-    }
+function sufficientlyBuffered(video, seconds) {
+  if (video.error) return false;
+  if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return false;
+  if (video.readyState === HTMLMediaElement.HAVE_ENOUGH_DATA) return true;
+  const duration = video.duration;
+  const needed = Number.isFinite(duration)
+    ? Math.min(seconds, Math.max(0.1, duration - 0.25))
+    : seconds;
+  return secondsBufferedAhead(video) + 0.15 >= needed;
+}
 
-    function doSeek() {
-      vid.currentTime = 0;
-      let done = false;
-      const finish = () => { if (!done) { done = true; resolve(); } };
-      vid.addEventListener('seeked', finish, { once: true });
-      setTimeout(finish, 1000);
-    }
+function preloadClip(video, clip, { seconds = MIN_BUFFER_SECONDS, signal } = {}) {
+  return new Promise(resolve => {
+    if (signal?.aborted) { resolve(false); return; }
 
-    if (vid.readyState >= 1) { doSeek(); }
-    else {
-      vid.onloadedmetadata = doSeek;
-      vid.onerror = () => resolve();
+    let finished = false;
+    let polling;
+    let timeout;
+    const events = ['progress', 'canplay', 'canplaythrough', 'loadeddata', 'seeked', 'durationchange'];
+    const cleanup = () => {
+      clearInterval(polling);
+      clearTimeout(timeout);
+      for (const event of events) video.removeEventListener(event, check);
+      video.removeEventListener('error', fail);
+      signal?.removeEventListener('abort', fail);
+    };
+    const finish = success => {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      resolve(success);
+    };
+    const check = () => {
+      if (video.error) finish(false);
+      else if (!video.seeking && sufficientlyBuffered(video, seconds)) finish(true);
+    };
+    const fail = () => finish(false);
+
+    for (const event of events) video.addEventListener(event, check);
+    video.addEventListener('error', fail);
+    signal?.addEventListener('abort', fail, { once: true });
+    polling = setInterval(check, 250);
+    timeout = setTimeout(() => {
+      console.warn('Preload timed out:', clip);
+      finish(false);
+    }, LOAD_TIMEOUT_MS);
+
+    try {
+      video.pause();
+      video.preload = 'auto';
+      const url = videoURL(clip);
+      if (video.src !== url) {
+        video.src = url;
+        video.load();
+      } else if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        video.currentTime = 0;
+      }
+      check();
+    } catch (error) {
+      console.warn('Failed to prepare clip:', clip, error);
+      finish(false);
     }
   });
 }
 
-// ── SWAP IN A VIDEO ───────────────────────────────────────────────────────────
-async function swapIn() {
-  const incoming = hideVid;
-  const outgoing = showVid;
+function queueNextNarrativeClip() {
+  preloadController?.abort();
+  preloadController = new AbortController();
+  const dim = pickDim();
+  const clip = pickClip(dim);
+  pending = {
+    dim,
+    clip,
+    promise: preloadClip(standby, clip, {
+      signal: preloadController.signal,
+      seconds: MIN_BUFFER_SECONDS,
+    }),
+  };
+}
 
-  incoming.volume = 0;
-  if (isAndroid) incoming.muted = true;
+// ── PLAYBACK PERMISSION FALLBACK ──────────────────────────────────────────────
+function askForPlaybackTap(video) {
+  return new Promise(resolve => {
+    startMessage.textContent = 'Your browser needs another tap to continue the film with sound.';
+    startBtn.textContent = 'CONTINUE';
+    startBtn.disabled = false;
+    startScreen.style.display = 'flex';
+    startBtn.onclick = () => {
+      // play() is called directly inside a click, satisfying gesture policies.
+      const attempt = video.play();
+      startBtn.disabled = true;
+      Promise.resolve(attempt).then(() => {
+        startScreen.style.display = 'none';
+        startBtn.onclick = null;
+        resolve(true);
+      }).catch(error => {
+        console.warn('Playback permission:', error);
+        startMessage.textContent = 'Playback is blocked. Check your browser media settings, then tap CONTINUE.';
+        startBtn.disabled = false;
+      });
+    };
+  });
+}
 
+async function playWithPermission(video) {
   try {
-    await incoming.play();
-  } catch(e) {
-    console.warn('play() blocked:', e);
+    await video.play();
+    return true;
+  } catch (error) {
+    if (error.name === 'NotAllowedError') {
+      return askForPlaybackTap(video);
+    }
+    console.warn('Playback failed:', error);
     return false;
   }
+}
 
-  if (isAndroid) {
-    incoming.muted = false;
+// ── CROSSFADE ONLY AFTER INCOMING VIDEO IS PLAYABLE ───────────────────────────
+async function swapIn(expectedPhase) {
+  const incoming = standby;
+  const outgoing = active;
+  incoming.volume = 0;
+  incoming.muted = false; // Avoid relying on unmuting later: iOS may pause it.
+  incoming.loop = expectedPhase === 'film';
+
+  const ok = await playWithPermission(incoming);
+  if (!ok || phase !== expectedPhase) {
+    incoming.pause();
+    return false;
   }
 
   incoming.style.opacity = '1';
   outgoing.style.opacity = '0';
   incoming.volume = 1;
   outgoing.volume = 0;
-  setTimeout(() => outgoing.pause(), 700);
-
-  [showVid, hideVid] = [incoming, outgoing];
+  [active, standby] = [incoming, outgoing];
+  setTimeout(() => outgoing.pause(), 600);
   return true;
 }
 
-// ── KICK NEXT PRELOAD ─────────────────────────────────────────────────────────
-function kickPreload() {
-  const dim  = pickDim();
-  const clip = pickClip(dim);
-  pending.dim     = dim;
-  pending.clip    = clip;
-  pending.promise = preloadClip(hideVid, clip);
-}
-
-// ── PLAY LOGO ─────────────────────────────────────────────────────────────────
-async function playLogo() {
-  phase = 'logo';
-  dimLabel.textContent = 'LOGO';
-  await preloadClip(hideVid, LOGO_CLIP, true);
-  const ok = await swapIn();
-  if (!ok) { console.warn('Logo skipped'); startFilm(); return; }
-  showVid.addEventListener('ended', startFilm, { once: true });
-  setTimeout(() => { if (phase === 'logo') startFilm(); }, 30000);
-}
-
-// ── START FILM ────────────────────────────────────────────────────────────────
-function startFilm() {
-  phase = 'film';
-  filmTimer = setTimeout(startCredits, FILM_DURATION);
-  const dim  = pickDim();
-  const clip = pickClip(dim);
-  pending.dim = dim; pending.clip = clip;
-  pending.promise = preloadClip(hideVid, clip);
-  cut();
-}
-
-// ── CUT ───────────────────────────────────────────────────────────────────────
-async function cut() {
+function scheduleNextCut() {
   if (phase !== 'film') return;
-  clearTimeout(cutTimer);
-  await pending.promise;
-  const ok = await swapIn();
-  if (!ok) { cutTimer = setTimeout(cut, 500); return; }
-  currentDim = pending.dim || currentDim;
-  lastClip   = pending.clip || lastClip;
-  dimLabel.textContent = currentDim;
-  cutCount++;
-  if (Math.random() > 0.92) {
-    showVid.classList.add('glitch');
-    setTimeout(() => showVid.classList.remove('glitch'), 180);
-  }
-  kickPreload();
-  cutTimer = setTimeout(cut, range(MIN_CLIP, MAX_CLIP) * 1000);
+  // Wait until the 0.5s crossfade is over before reusing its outgoing video.
+  // Otherwise .load() would blank the scene while it's still fading away.
+  pending = null;
+  clearTimeout(preloadKickTimer);
+  preloadKickTimer = setTimeout(() => {
+    if (phase === 'film') queueNextNarrativeClip();
+  }, 700);
+  const seconds = range(MIN_CLIP, MAX_CLIP);
+  cutTimer = setTimeout(cut, seconds * 1000);
 }
 
-// ── START CREDITS ─────────────────────────────────────────────────────────────
+// ── MAIN RANDOM FILM ──────────────────────────────────────────────────────────
+async function cut() {
+  if (phase !== 'film' || cutting || !pending) return;
+  cutting = true;
+  clearTimeout(cutTimer);
+
+  const job = pending;
+  const ready = job && await job.promise;
+  if (phase !== 'film') { cutting = false; return; }
+
+  if (!ready) {
+    // If the network stalls, leave the existing film clip on screen.
+    // It is looped, so viewers never cut to an empty player.
+    console.warn('Skipping unbuffered clip:', job?.clip);
+    cutting = false;
+    queueNextNarrativeClip();
+    cutTimer = setTimeout(cut, 1500);
+    return;
+  }
+
+  const ok = await swapIn('film');
+  if (phase !== 'film') { cutting = false; return; }
+  if (!ok) {
+    cutting = false;
+    queueNextNarrativeClip();
+    cutTimer = setTimeout(cut, 1500);
+    return;
+  }
+
+  currentDim = job.dim;
+  lastClip = job.clip;
+  dimLabel.textContent = currentDim;
+
+  // Three-minute countdown starts with the FIRST narrative frame, not during buffering.
+  if (!filmHasStarted) {
+    filmHasStarted = true;
+    filmTimer = setTimeout(startCredits, FILM_DURATION);
+  }
+
+  if (Math.random() > 0.92) {
+    const glitchVideo = active;
+    glitchVideo.classList.add('glitch');
+    setTimeout(() => glitchVideo.classList.remove('glitch'), 180);
+  }
+
+  cutting = false;
+  scheduleNextCut();
+}
+
+function startFilm() {
+  if (phase !== 'logo') return;
+  phase = 'film';
+  clearTimeout(logoTimer);
+  active.removeEventListener('ended', startFilm);
+  // Never leave a black frame while the first narrative clip buffers.
+  active.loop = true;
+  if (active.ended) active.play().catch(() => {});
+  cut(); // The first narrative clip was already preloading under the logo.
+}
+
 async function startCredits() {
+  if (phase !== 'film') return;
   phase = 'credits';
   clearTimeout(cutTimer);
+  clearTimeout(preloadKickTimer);
+  clearTimeout(filmTimer);
+  preloadController?.abort();
+  pending = null;
   dimLabel.textContent = 'CREDITS';
-  await preloadClip(hideVid, CREDITS_CLIP, true);
-  await swapIn();
+
+  // Let any in-flight crossfade finish before reusing the outgoing player.
+  await new Promise(resolve => setTimeout(resolve, 700));
+  // Film stays visible (and loops if necessary) while credits buffer.
+  const creditsReady = await preloadClip(standby, CREDITS_CLIP, { seconds: 3 });
+  if (phase !== 'credits') return;
+  if (!creditsReady) {
+    console.error('Credits could not be loaded. Check /videos/CREDITS.mp4 and the connection.');
+    startMessage.textContent = 'Credits could not load. Check your connection and try again.';
+    startBtn.textContent = 'RETRY CREDITS';
+    startBtn.disabled = false;
+    startBtn.onclick = () => { startBtn.disabled = true; startBtn.onclick = null; startScreen.style.display = 'none'; phase = 'film'; startCredits(); };
+    startScreen.style.display = 'flex';
+    return;
+  }
+
+  if (!await swapIn('credits')) return;
   document.getElementById('info').style.display = 'none';
-  showVid.addEventListener('ended', () => { phase = 'done'; }, { once: true });
+  active.loop = false;
+  active.addEventListener('ended', () => { phase = 'done'; }, { once: true });
 }
 
-// ── ORIENTATION ───────────────────────────────────────────────────────────────
-screen.orientation?.addEventListener('change', () => {
-  document.body.style.display = 'none';
-  requestAnimationFrame(() => { document.body.style.display = ''; });
-});
+// ── INTRO AND INPUT ───────────────────────────────────────────────────────────
+// Start downloading the logo and first narrative clip BEFORE the viewer taps ENTER.
+// This is a hint to browsers; some mobile browsers may defer the actual transfer.
+preloadClip(active, LOGO_CLIP, { seconds: 2 });
+queueNextNarrativeClip();
 
-// ── START ─────────────────────────────────────────────────────────────────────
-startBtn.addEventListener('click', () => {
+startBtn.addEventListener('click', async function enter() {
+  if (phase !== 'idle') return;
+  phase = 'logo';
+  dimLabel.textContent = 'LOGO';
+  startBtn.disabled = true;
+  startBtn.textContent = 'PREPARING…';
+  startMessage.textContent = 'Preparing your experience…';
+
+  // play() MUST be invoked in this click handler, before any await.
+  const firstPlay = active.play();
+  try {
+    await firstPlay;
+  } catch (error) {
+    if (error.name === 'NotAllowedError') {
+      await askForPlaybackTap(active);
+    } else {
+      console.warn('Logo failed:', error);
+      startMessage.textContent = 'The opening video could not load. Check /videos/OW-FV-LOGO.mp4 and refresh.';
+      startBtn.textContent = 'RELOAD';
+      startBtn.disabled = false;
+      startBtn.onclick = () => location.reload();
+      return;
+    }
+  }
+
+  active.volume = 1;
+  active.style.opacity = '1';
   startScreen.style.display = 'none';
-  playLogo();
-});
+  active.addEventListener('ended', startFilm, { once: true });
+  logoTimer = setTimeout(startFilm, 30000);
+}, { once: true });
 
-// ── KEYBOARD ──────────────────────────────────────────────────────────────────
+// Spacebar: cut to a prebuffered scene (or wait for the selected scene to buffer).
 document.addEventListener('keydown', e => {
-  if (e.code === 'Space' && phase === 'film') { clearTimeout(cutTimer); kickPreload(); cut(); }
-  if (e.key.toLowerCase() === 'g' && showVid) {
-    showVid.classList.add('glitch');
-    setTimeout(() => showVid.classList.remove('glitch'), 180);
+  if (e.code === 'Space' && phase === 'film') {
+    e.preventDefault();
+    cut();
+  }
+  if (e.key.toLowerCase() === 'g' && phase !== 'idle') {
+    const video = active;
+    video.classList.add('glitch');
+    setTimeout(() => video.classList.remove('glitch'), 180);
   }
 });
 </script>
-
 </body>
 </html>

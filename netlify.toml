@@ -1,0 +1,4 @@
+# Plain HTML/JavaScript. Netlify publishes everything in this directory,
+# including the /videos/ folder. No paid services or build process.
+[build]
+  publish = "."

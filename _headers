@@ -1,2 +1,9 @@
+# Browser caching helps returning viewers and repeated random clips.
+# If you change an MP4 but keep its name, visitors may see the old version
+# for up to a day; use a new filename or lower max-age before updates.
+/videos/*
+  Cache-Control: public, max-age=86400
+
 /*
-  Access-Control-Allow-Origin: *
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
