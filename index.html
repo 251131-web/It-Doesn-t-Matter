@@ -118,9 +118,20 @@ let filmHasStarted = false;
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 const range = (a, b) => a + Math.random() * (b - a);
 function pickDim() { return Math.random() < 0.2 ? currentDim : pick(Object.keys(dimensions)); }
-function pickClip(dim) {
-  const options = dimensions[dim].filter(c => c !== lastClip);
-  return pick(options.length ? options : dimensions[dim]);
+
+// A clip may be shown again later, but NEVER immediately after itself.
+// Choose from other dimensions if the preferred one has no eligible clip.
+function pickNextNarrativeClip() {
+  const preferredDim = pickDim();
+  const preferred = dimensions[preferredDim]
+    .filter(clip => clip !== lastClip)
+    .map(clip => ({ dim: preferredDim, clip }));
+  if (preferred.length) return pick(preferred);
+
+  const alternatives = Object.entries(dimensions).flatMap(([dim, clips]) =>
+    clips.filter(clip => clip !== lastClip).map(clip => ({ dim, clip }))
+  );
+  return alternatives.length ? pick(alternatives) : null;
 }
 function videoURL(path) { return new URL(path, VIDEO_BASE).href; }
 
@@ -204,12 +215,16 @@ function preloadClip(video, clip, { seconds = MIN_BUFFER_SECONDS, signal } = {})
 function queueNextNarrativeClip() {
   preloadController?.abort();
   preloadController = new AbortController();
-  const dim = pickDim();
-  const clip = pickClip(dim);
+  const next = pickNextNarrativeClip();
+  if (!next) {
+    pending = null;
+    console.error('At least two different narrative clips are required.');
+    return;
+  }
   pending = {
-    dim,
-    clip,
-    promise: preloadClip(standby, clip, {
+    dim: next.dim,
+    clip: next.clip,
+    promise: preloadClip(standby, next.clip, {
       signal: preloadController.signal,
       seconds: MIN_BUFFER_SECONDS,
     }),
@@ -259,7 +274,7 @@ async function swapIn(expectedPhase) {
   const outgoing = active;
   incoming.volume = 0;
   incoming.muted = false; // Avoid relying on unmuting later: iOS may pause it.
-  incoming.loop = expectedPhase === 'film';
+  incoming.loop = false; // Never replay a narrative clip automatically.
 
   const ok = await playWithPermission(incoming);
   if (!ok || phase !== expectedPhase) {
@@ -283,25 +298,46 @@ function scheduleNextCut() {
   pending = null;
   clearTimeout(preloadKickTimer);
   preloadKickTimer = setTimeout(() => {
-    if (phase === 'film') queueNextNarrativeClip();
+    if (phase !== 'film') return;
+    queueNextNarrativeClip();
+    // Very short clips can end before the next clip is queued.
+    // Start the next cut immediately instead of repeating the finished clip.
+    if (active.ended) cut();
   }, 700);
   const seconds = range(MIN_CLIP, MAX_CLIP);
   cutTimer = setTimeout(cut, seconds * 1000);
 }
 
 // ── MAIN RANDOM FILM ──────────────────────────────────────────────────────────
+// An ended clip holds its last frame until the next clip is buffered.
+// This prevents short videos from looping when the scheduled cut is later.
+function onNarrativeEnded(event) {
+  if (phase !== 'film' || event.target !== active) return;
+  if (pending) cut();
+  // If still in the crossfade, scheduleNextCut() will queue and cut soon.
+}
+vidA.addEventListener('ended', onNarrativeEnded);
+vidB.addEventListener('ended', onNarrativeEnded);
+
 async function cut() {
   if (phase !== 'film' || cutting || !pending) return;
   cutting = true;
   clearTimeout(cutTimer);
 
   const job = pending;
-  const ready = job && await job.promise;
+  // Defensive check: even a stale preload may never replay the current clip.
+  if (job.clip === lastClip) {
+    cutting = false;
+    queueNextNarrativeClip();
+    cutTimer = setTimeout(cut, 1500);
+    return;
+  }
+  const ready = await job.promise;
   if (phase !== 'film') { cutting = false; return; }
 
   if (!ready) {
-    // If the network stalls, leave the existing film clip on screen.
-    // It is looped, so viewers never cut to an empty player.
+    // If the network stalls, keep the current frame on screen.
+    // The video will NOT loop or repeat while the next clip buffers.
     console.warn('Skipping unbuffered clip:', job?.clip);
     cutting = false;
     queueNextNarrativeClip();
@@ -343,9 +379,9 @@ function startFilm() {
   phase = 'film';
   clearTimeout(logoTimer);
   active.removeEventListener('ended', startFilm);
-  // Never leave a black frame while the first narrative clip buffers.
-  active.loop = true;
-  if (active.ended) active.play().catch(() => {});
+  // Hold the final logo frame if the first narrative clip still buffers.
+  // Do not loop the logo or any narrative clip.
+  active.loop = false;
   cut(); // The first narrative clip was already preloading under the logo.
 }
 
